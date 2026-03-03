@@ -1,8 +1,10 @@
 import numpy as np
 import sys
 
+from category.functors import TranslationFunctor
 from core.state import MotivationalState
 from core.config import G_IND, G_TRANS, M_AROUSAL, M_SECURING
+from dynamics.stability import apply_homeostatic_damping
 from openpsi.appraisal import OpenPsiAppraisal
 from magus.decision import MagusDecision
 from category.bimonad import MetaMoPseudoBimonad
@@ -38,17 +40,25 @@ def create_initial_state() -> MotivationalState:
     return MotivationalState(G=G, M=M)
 
 def interactive_loop():
-    print("Initializing MetaMo Chat Interface...")
+    print("Initializing MetaMo Multi-Subsystem Chat Interface...")
     
-    # Initialize MetaMo Mathematical Engine
+    # Initialize the core MetaMo mathematical engine
     bimonad = MetaMoPseudoBimonad(OpenPsiAppraisal(), MagusDecision())
-    current_state = create_initial_state()
-    
-    # Initialize the Gemini Conversational Layer
     assistant = MetaMoChatAssistant()
     
-    print("\nSystem Ready. Type 'quit' to exit.")
-    print("-" * 50)
+    # Initialize two parallel subsystems 
+    state_curiosity = create_initial_state()
+    state_curiosity.G[G_TRANS] = 0.9 # Highly transcendent/curious
+    
+    state_ethics = create_initial_state()
+    state_ethics.G[G_IND] = 0.9      # Highly individuated/cautious
+    
+    # Initialize a Translation Functor for peer simulation (Identity matrix for simplicity)
+    identity_matrix = np.eye(NUM_GOALS)
+    translator = TranslationFunctor(identity_matrix)
+    
+    print("\nSystem Ready. Subsystems: [Curiosity] & [Ethics]. Type 'quit' to exit.")
+    print("-" * 60)
     
     while True:
         try:
@@ -58,26 +68,46 @@ def interactive_loop():
             
             print("\n[MetaMo Internal Processing...]")
             
-            # 1. Perception Layer (Stateless LLM -> JSON -> Stimulus)
+            # 1. Perception Layer
             stimulus = get_stimulus_from_text(user_input)
             
-            # 2. Planning Layer (Stateless LLM -> JSON -> Actions)
-            current_mood = {"arousal": current_state.M[M_AROUSAL], "caution": current_state.M[M_SECURING]}
+            # 2. Planning Layer (Use merged mood for generating candidates)
+            # CALLING THE METHOD FROM THE BIMONAD INSTANCE
+            merged_current = bimonad.parallel_merge(state_curiosity, state_ethics)
+            current_mood = {"arousal": merged_current.M[M_AROUSAL], "caution": merged_current.M[M_SECURING]}
             candidates = get_candidates_from_text(user_input, current_mood)
             
-            # 3. Decision Layer (MetaMo Math)
-            chosen_action, target_state = bimonad.step(current_state, stimulus, candidates)
-            print(f"  > Appraised Novelty: {stimulus.novelty:.2f}, Risk: {stimulus.risk:.2f}")
-            print(f"  > Selected Action: {chosen_action.id}")
+            # 3. Parallel Decision Layer 
+            action_c, target_c = bimonad.step(state_curiosity, stimulus, candidates)
+            action_e, target_e = bimonad.step(state_ethics, stimulus, candidates)
             
-            # 4. Execution Layer (Chat LLM -> Natural Text)
-            response_text = assistant.generate_final_response(user_input, chosen_action, target_state)
+            print(f"  > [Curiosity Subsystem] wants to: {action_c.id}")
+            print(f"  > [Ethics Subsystem] wants to: {action_e.id}")
             
-            # 5. Incremental Embodiment (Update State)
-            current_state = blend_states(current_state, target_state)
+            # 4. Peer Simulation 
+            simulated_ethics = translator.simulate_peer(state_curiosity)
+            print(f"  > [Reciprocal Simulation]: Curiosity agent predicts Ethics agent's caution is {simulated_ethics.G[G_IND]:.2f}")
+
+            # 5. Parallel Merge 
+            # CALLING THE METHOD FROM THE BIMONAD INSTANCE
+            merged_target = bimonad.parallel_merge(target_c, target_e)
+            
+            # Ensure the merged action respects the consensus 
+            final_action = action_e if action_e.risk_estimate < action_c.risk_estimate else action_c
+            
+            # 6. Active Homeostatic Damping 
+            damped_delta_g = apply_homeostatic_damping(merged_current, final_action.delta_g)
+            merged_target.G = np.clip(merged_target.G + damped_delta_g, 0.0, 1.0)
+            
+            # 7. Execution Layer
+            response_text = assistant.generate_final_response(user_input, final_action, merged_target)
+            
+            # 8. Incremental Embodiment (Update States)
+            state_curiosity = blend_states(state_curiosity, target_c)
+            state_ethics = blend_states(state_ethics, target_e)
             
             print(f"\nAssistant: {response_text}")
-            print(f"\n[System State -> Individuation: {current_state.G[G_IND]:.2f} | Transcendence: {current_state.G[G_TRANS]:.2f}]")
+            print(f"\n[Consensus State -> Individuation: {merged_target.G[G_IND]:.2f} | Transcendence: {merged_target.G[G_TRANS]:.2f}]")
             
         except Exception as e:
             print(f"\nAn error occurred: {e}")
