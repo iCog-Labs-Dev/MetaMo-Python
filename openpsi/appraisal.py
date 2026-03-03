@@ -1,0 +1,75 @@
+import numpy as np
+
+# Assuming these are available in your python path
+from core.state import MotivationalState, Stimulus
+from core.config import (
+    G_IND, 
+    G_TRANS,
+    M_VALENCE, 
+    M_AROUSAL, 
+    M_APPROACH, 
+    M_RESOLUTION, 
+    M_THRESHOLD, 
+    M_SECURING
+)
+from category.functors import AppraisalComonad
+
+class OpenPsiAppraisal(AppraisalComonad):
+    """
+    Implements the OpenPsi appraisal layer as the Comonad (\Psi)[cite: 49].
+    Updates the six affective modulators based on external/internal stimuli[cite: 51].
+    """
+
+    def extract(self, state: MotivationalState) -> MotivationalState:
+        """
+        The comonadic counit. Extracts the current state.
+        """
+        return state
+
+    def appraise(self, state: MotivationalState, stimulus: Stimulus) -> MotivationalState:
+        """
+        Applies \Psi((G, M), s) = (G, M')[cite: 55].
+        Updates the modulators M based on stimulus novelty, conduciveness, and risk,
+        while applying MAGUS overgoal scaling[cite: 116, 117].
+        """
+        # Create a copy to maintain functional purity
+        M_prime = state.M.copy()
+        
+        # 1. Extract current MAGUS overgoals for scaling
+        g_ind = state.G[G_IND]      # Individuation
+        g_trans = state.G[G_TRANS]  # Transcendence
+        
+        # 2. Calculate base modulator updates from the stimulus
+        # OpenPsi novelty raises arousal and approach[cite: 188].
+        delta_arousal = stimulus.novelty
+        delta_approach = stimulus.novelty
+        
+        # Goal conduciveness raises valence and resolution[cite: 188].
+        delta_valence = stimulus.conduciveness
+        delta_resolution = stimulus.conduciveness
+        
+        # Cost or risk raises threshold and securing[cite: 188].
+        delta_threshold = stimulus.risk
+        delta_securing = stimulus.risk
+        
+        # 3. Apply MAGUS Overgoal Scaling
+        # g_over^Trans scales up arousal and approach to encourage adaptive risk-taking.
+        M_prime[M_AROUSAL] += delta_arousal * (1.0 + g_trans)
+        M_prime[M_APPROACH] += delta_approach * (1.0 + g_trans)
+        
+        # g_over^Ind scales up securing and threshold to suppress unstable subgoals.
+        M_prime[M_THRESHOLD] += delta_threshold * (1.0 + g_ind)
+        M_prime[M_SECURING] += delta_securing * (1.0 + g_ind)
+        
+        # Valence and resolution update directly based on conduciveness
+        M_prime[M_VALENCE] += delta_valence
+        M_prime[M_RESOLUTION] += delta_resolution
+        
+        # 4. Optional: Allow effort to dampen energy (arousal)
+        M_prime[M_AROUSAL] -= stimulus.effort * 0.5
+        
+        # 5. Bound the modulators to ensure they stay within [0, 1] mathematically
+        M_prime = np.clip(M_prime, 0.0, 1.0)
+        
+        # Return a new state object with the unchanged G and the newly updated M'
+        return MotivationalState(G=state.G.copy(), M=M_prime)
