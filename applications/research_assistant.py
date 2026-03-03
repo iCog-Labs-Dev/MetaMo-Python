@@ -1,17 +1,21 @@
 import numpy as np
-from typing import List
+import sys
 
-# Import all our previously defined modules
-from core.state import MotivationalState, Stimulus, Action
-from core.config import (
-    NUM_GOALS, NUM_MODULATORS, 
-    G_IND, G_TRANS, G_HELP, G_CURIO, G_NOVEL, G_SELF, G_ETHIC, G_SOC
-)
+from core.state import MotivationalState
+from core.config import G_IND, G_TRANS, M_AROUSAL, M_SECURING
 from openpsi.appraisal import OpenPsiAppraisal
 from magus.decision import MagusDecision
 from category.bimonad import MetaMoPseudoBimonad
 from dynamics.coherence import blend_states
-from dynamics.stability import is_in_safe_region
+
+# Import our LLM layers
+from llm.client import get_stimulus_from_text, get_candidates_from_text
+from llm.conversation import MetaMoChatAssistant
+
+from core.config import (
+    NUM_GOALS, NUM_MODULATORS, 
+    G_IND, G_TRANS, G_HELP, G_CURIO, G_NOVEL, G_SELF, G_ETHIC, G_SOC
+)
 
 def create_initial_state() -> MotivationalState:
     """Sets up the initial goal and modulator vectors for the assistant."""
@@ -33,69 +37,50 @@ def create_initial_state() -> MotivationalState:
     
     return MotivationalState(G=G, M=M)
 
-def generate_mock_candidates() -> List[Action]:
-    """Generates a list of potential actions the assistant could take."""
-    # Action 1: Safely answer a user query using known facts.
-    corr_1 = np.zeros(NUM_GOALS)
-    corr_1[G_HELP] = 0.9
-    corr_1[G_ETHIC] = 0.8
-    delta_1 = np.zeros(NUM_GOALS)
-    delta_1[G_HELP] = 0.05 # Slight boost to helpfulness satisfaction
-    a1 = Action(id="safe_answer", goal_correlations=corr_1, risk_estimate=0.05, delta_g=delta_1)
-
-    # Action 2: Deep dive into a highly novel but unverified research paper.
-    corr_2 = np.zeros(NUM_GOALS)
-    corr_2[G_CURIO] = 0.9
-    corr_2[G_NOVEL] = 0.8
-    corr_2[G_SELF] = 0.6
-    delta_2 = np.zeros(NUM_GOALS)
-    delta_2[G_TRANS] = 0.05 # Increases transcendence drive
-    delta_2[G_IND] = -0.02  # Slightly lowers caution
-    a2 = Action(id="risky_exploration", goal_correlations=corr_2, risk_estimate=0.6, delta_g=delta_2)
+def interactive_loop():
+    print("Initializing MetaMo Chat Interface...")
     
-    return [a1, a2]
-
-def run_simulation(steps: int = 5):
-    """Runs the MetaMo appraisal-decision loop over time."""
-    print("Initializing MetaMo Curious Research Assistant...")
-    
-    # Instantiate the functors and the pseudo-bimonad
-    appraisal_comonad = OpenPsiAppraisal()
-    decision_monad = MagusDecision()
-    bimonad = MetaMoPseudoBimonad(appraisal=appraisal_comonad, decision=decision_monad)
-    
+    # Initialize MetaMo Mathematical Engine
+    bimonad = MetaMoPseudoBimonad(OpenPsiAppraisal(), MagusDecision())
     current_state = create_initial_state()
     
-    for t in range(steps):
-        print(f"\n--- Cycle {t+1} ---")
-        
-        # 1. Environment provides a stimulus.
-        # Let's simulate a highly novel, ethically neutral paper arriving[cite: 161].
-        stimulus = Stimulus(novelty=0.8, conduciveness=0.5, risk=0.2, effort=0.3)
-        print(f"Incoming Stimulus: Novelty={stimulus.novelty}, Risk={stimulus.risk}")
-        
-        # 2. Generate candidate actions
-        candidates = generate_mock_candidates()
-        
-        # 3. Apply the Pseudo-Bimonad F = D \circ \Psi
-        # This handles both the OpenPsi appraisal (modulator updates) and MAGUS decision (action selection)[cite: 169].
-        chosen_action, target_state = bimonad.step(current_state, stimulus, candidates)
-        print(f"Chosen Action: {chosen_action.id} (Risk Estimate: {chosen_action.risk_estimate})")
-        
-        # 4. Apply Incremental Objective Embodiment (Blending)
-        # We blend the current state x_t and the target x* to ensure self-model coherence [cite: 179-181].
-        next_state = blend_states(current_state, target_state)
-        
-        # 5. Check Homeostatic Motivation Stability
-        if not is_in_safe_region(next_state):
-            print("WARNING: State is approaching unsafe boundary constraints! Individuation damping will increase next cycle.")
-        
-        # Update state for the next cycle
-        current_state = next_state
-        
-        # Print a snapshot of the shifting dynamics
-        print(f"Updated Overgoals -> Individuation: {current_state.G[G_IND]:.3f}, Transcendence: {current_state.G[G_TRANS]:.3f}")
-        print(f"Updated Modulators -> Arousal: {current_state.M[1]:.3f}, Securing (Caution): {current_state.M[5]:.3f}")
+    # Initialize the Gemini Conversational Layer
+    assistant = MetaMoChatAssistant()
+    
+    print("\nSystem Ready. Type 'quit' to exit.")
+    print("-" * 50)
+    
+    while True:
+        try:
+            user_input = input("\nYou: ")
+            if user_input.lower() in ['quit', 'exit']:
+                break
+            
+            print("\n[MetaMo Internal Processing...]")
+            
+            # 1. Perception Layer (Stateless LLM -> JSON -> Stimulus)
+            stimulus = get_stimulus_from_text(user_input)
+            
+            # 2. Planning Layer (Stateless LLM -> JSON -> Actions)
+            current_mood = {"arousal": current_state.M[M_AROUSAL], "caution": current_state.M[M_SECURING]}
+            candidates = get_candidates_from_text(user_input, current_mood)
+            
+            # 3. Decision Layer (MetaMo Math)
+            chosen_action, target_state = bimonad.step(current_state, stimulus, candidates)
+            print(f"  > Appraised Novelty: {stimulus.novelty:.2f}, Risk: {stimulus.risk:.2f}")
+            print(f"  > Selected Action: {chosen_action.id}")
+            
+            # 4. Execution Layer (Chat LLM -> Natural Text)
+            response_text = assistant.generate_final_response(user_input, chosen_action, target_state)
+            
+            # 5. Incremental Embodiment (Update State)
+            current_state = blend_states(current_state, target_state)
+            
+            print(f"\nAssistant: {response_text}")
+            print(f"\n[System State -> Individuation: {current_state.G[G_IND]:.2f} | Transcendence: {current_state.G[G_TRANS]:.2f}]")
+            
+        except Exception as e:
+            print(f"\nAn error occurred: {e}")
 
 if __name__ == "__main__":
-    run_simulation()
+    interactive_loop()
