@@ -59,6 +59,13 @@ MetaMo-Python/
 |   |-- __init__.py
 |   |-- decision.py          # MagusDecision monad implementation
 |
+|-- llm/                     # LLM integration layer
+|   |-- __init__.py
+|   |-- client.py            # LLM client wrapper
+|   |-- conversation.py      # Conversation and context management
+|   |-- prompts.py           # Prompt templates
+|   |-- parser.py            # Response parsing
+|
 |-- dynamics/                # Stability and coherence mechanisms
 |   |-- __init__.py
 |   |-- coherence.py        # State blending and self-model drift checking
