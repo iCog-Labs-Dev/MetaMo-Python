@@ -1,8 +1,12 @@
 from typing import List, Tuple
-
+import numpy as np
 # Assuming these are available in your python path
 from core.state import MotivationalState, Stimulus, Action
-from core.config import LAX_DISTRIBUTIVE_DELTA
+from core.config import (
+    LAX_DISTRIBUTIVE_DELTA,
+    G_IND
+
+    )
 from category.functors import AppraisalComonad, DecisionMonad
 
 class MetaMoPseudoBimonad:
@@ -55,3 +59,21 @@ class MetaMoPseudoBimonad:
         
         # The law holds if the distortion is bounded by the acceptable delta[cite: 344].
         return distortion <= LAX_DISTRIBUTIVE_DELTA
+    def parallel_merge(self, state_a: MotivationalState, state_b: MotivationalState, coherence_correction: float = 0.05) -> MotivationalState:
+        """
+        Implements Principle 3: Parallel Motivational Compositionality.
+        Witnesses the lax-monoidal structure \phi_{X,Y} of the composite F.
+        Merges two parallel motivational subsystems with small coherence corrections.
+        """
+        # Merge goals using a weighted average based on their respective Individuation drives
+        weight_a = state_a.G[G_IND]
+        weight_b = state_b.G[G_IND]
+        total_weight = weight_a + weight_b + 1e-9 # Prevent division by zero
+        
+        merged_G = ((state_a.G * weight_a) + (state_b.G * weight_b)) / total_weight
+        merged_M = ((state_a.M * weight_a) + (state_b.M * weight_b)) / total_weight
+        
+        # Apply the small topological coherence correction to prevent subsystem interference
+        merged_G = np.clip(merged_G - coherence_correction, 0.0, 1.0)
+        
+        return MotivationalState(G=merged_G, M=merged_M)

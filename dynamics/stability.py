@@ -6,7 +6,9 @@ from core.config import (
     G_MAX, 
     ETA_BOUNDARY, 
     C_CONTRACT, 
-    EPSILON
+    EPSILON,
+    M_SECURING,
+    M_THRESHOLD
 )
 # Assuming bimonad is available
 from category.bimonad import MetaMoPseudoBimonad
@@ -77,3 +79,21 @@ def check_contractive_update_law(
     
     # Verify the contractive bound
     return dist_final <= (C_CONTRACT * dist_initial) + EPSILON
+
+
+def apply_homeostatic_damping(state: MotivationalState, delta_g: np.ndarray) -> np.ndarray:
+    """
+    Actively enforces Principle 4 by damping goal updates near the boundary.
+    """
+    if is_in_boundary_band(state):
+        # Raise caution modulators based on boundary proximity
+        state.M[M_SECURING] = min(1.0, state.M[M_SECURING] + 0.2)
+        state.M[M_THRESHOLD] = min(1.0, state.M[M_THRESHOLD] + 0.2)
+        
+        # Scale the proposed goal-intensity bumps by the stability modulator (Individuation)
+        # As described in the trading agent/research assistant example
+        damping_factor = 1.0 - state.G[G_IND]
+        return delta_g * damping_factor
+    
+    # Deep inside R, allow full flexible updates
+    return delta_g

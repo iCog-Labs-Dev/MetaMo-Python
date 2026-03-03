@@ -1,5 +1,6 @@
 from abc import ABC, abstractmethod
 from typing import List, Tuple
+import numpy as np
 
 from core.state import MotivationalState, Stimulus, Action
 
@@ -51,3 +52,26 @@ class DecisionMonad(ABC):
         Returns the chosen action and the resulting state (G + \Delta G, M)[cite: 120, 169].
         """
         pass
+
+    # Add to category/functors.py
+class TranslationFunctor:
+    """
+    Implements Principle 2: Reciprocal Motivational State Simulation.
+    Maps Agent A's state into Agent B's state space for seamless hand-off.
+    """
+    def __init__(self, translation_matrix: np.ndarray):
+        # A matrix defining how Agent A's goals/modulators map to Agent B's
+        self.translation_matrix = translation_matrix
+        
+    def simulate_peer(self, state_a: MotivationalState) -> MotivationalState:
+        """
+        Applies functor T to shadow another agent's motivational frame.
+        """
+        # Translate goals and modulators via the mapping matrix
+        simulated_G = np.dot(self.translation_matrix, state_a.G)
+        simulated_M = np.dot(self.translation_matrix[:6, :6], state_a.M) # Assuming 6x6 for modulators
+        
+        return MotivationalState(
+            G=np.clip(simulated_G, 0.0, 1.0),
+            M=np.clip(simulated_M, 0.0, 1.0)
+        )
