@@ -31,7 +31,7 @@ The framework ensures:
 git clone https://github.com/Nahom32/MetaMo-Python.git
 cd MetaMo-Python
 
-# Activate virtual environment (optional but recommended)
+
 source venv/bin/activate
 ```
 
