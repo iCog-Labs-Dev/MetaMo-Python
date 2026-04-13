@@ -53,10 +53,6 @@ class OpenPsiAppraisal(AppraisalComonad):
         delta_resolution = stimulus.conduciveness
         risk_spike = stimulus.risk * np.exp(g_ind * 2.0)
         
-        # Cost or risk raises threshold and securing[cite: 188].
-        delta_threshold = stimulus.risk
-        delta_securing = stimulus.risk
-        
         # 3. Apply MAGUS Overgoal Scaling
         # g_over^Trans scales up arousal and approach to encourage adaptive risk-taking.
         M_prime[M_AROUSAL] += delta_arousal * np.exp(g_trans - 0.5)
