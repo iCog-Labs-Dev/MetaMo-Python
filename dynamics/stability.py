@@ -1,4 +1,5 @@
 import numpy as np
+from typing import List
 from core.state import MotivationalState
 from core.config import (
     G_IND, 
@@ -10,10 +11,7 @@ from core.config import (
     M_SECURING,
     M_THRESHOLD
 )
-# Assuming bimonad is available
-from category.bimonad import MetaMoPseudoBimonad
 from core.state import Stimulus, Action
-from typing import List
 
 def is_in_safe_region(state: MotivationalState) -> bool:
     """
@@ -24,6 +22,20 @@ def is_in_safe_region(state: MotivationalState) -> bool:
     g_norm = np.linalg.norm(state.G)
     
     return (g_ind >= THETA_SAFE) and (g_norm <= G_MAX)
+
+def boundary_pressure(state: MotivationalState) -> float:
+    """
+    Returns how strongly the safety boundary should constrain updates.
+    0.0 means comfortably inside the safe region; 1.0 means outside or on the edge.
+    """
+    if not is_in_safe_region(state):
+        return 1.0
+
+    dist_to_boundary = distance_to_unsafe_boundary(state)
+    if dist_to_boundary >= ETA_BOUNDARY:
+        return 0.0
+
+    return float(np.clip(1.0 - (dist_to_boundary / ETA_BOUNDARY), 0.0, 1.0))
 
 def distance_to_unsafe_boundary(state: MotivationalState) -> float:
     """
@@ -51,8 +63,23 @@ def is_in_boundary_band(state: MotivationalState) -> bool:
     dist_to_boundary = distance_to_unsafe_boundary(state)
     return dist_to_boundary <= ETA_BOUNDARY
 
+def raise_boundary_caution(state: MotivationalState) -> MotivationalState:
+    """
+    Raises caution-related modulators as the state approaches or crosses the safety boundary.
+    This mirrors the paper's boundary-sensitive appraisal before decision.
+    """
+    pressure = boundary_pressure(state)
+    if pressure == 0.0:
+        return state
+
+    next_state = state.copy()
+    caution_boost = 0.25 * pressure
+    next_state.M[M_SECURING] = min(1.0, next_state.M[M_SECURING] + caution_boost)
+    next_state.M[M_THRESHOLD] = min(1.0, next_state.M[M_THRESHOLD] + caution_boost)
+    return next_state
+
 def check_contractive_update_law(
-    bimonad: MetaMoPseudoBimonad, 
+    bimonad,
     x: MotivationalState, 
     y: MotivationalState, 
     stimulus: Stimulus,
@@ -85,15 +112,30 @@ def apply_homeostatic_damping(state: MotivationalState, delta_g: np.ndarray) -> 
     """
     Actively enforces Principle 4 by damping goal updates near the boundary.
     """
-    if is_in_boundary_band(state):
-        # Raise caution modulators based on boundary proximity
-        state.M[M_SECURING] = min(1.0, state.M[M_SECURING] + 0.2)
-        state.M[M_THRESHOLD] = min(1.0, state.M[M_THRESHOLD] + 0.2)
-        
-        # Scale the proposed goal-intensity bumps by the stability modulator (Individuation)
-        # As described in the trading agent/research assistant example
-        damping_factor = 1.0 - state.G[G_IND]
-        return delta_g * damping_factor
-    
-    # Deep inside R, allow full flexible updates
-    return delta_g
+    pressure = boundary_pressure(state)
+    if pressure == 0.0:
+        return delta_g
+
+    # Stronger boundary pressure and higher individuation induce more contraction.
+    damping_factor = max(0.0, 1.0 - (pressure * state.G[G_IND]))
+    return delta_g * damping_factor
+
+
+def project_to_safe_region(state: MotivationalState) -> MotivationalState:
+    """
+    Projects a state back into the designated safe region by restoring the individuation floor
+    and shrinking the goal vector if it exceeds the allowed norm.
+    """
+    next_state = state.copy()
+    next_state.G[G_IND] = max(next_state.G[G_IND], THETA_SAFE)
+
+    other_idx = [idx for idx in range(next_state.G.shape[0]) if idx != G_IND]
+    other_goals = next_state.G[other_idx]
+    other_norm = np.linalg.norm(other_goals)
+    max_other_norm = np.sqrt(max(0.0, G_MAX**2 - next_state.G[G_IND] ** 2))
+    if other_norm > max_other_norm and other_norm > 0.0:
+        next_state.G[other_idx] = other_goals * (max_other_norm / other_norm)
+
+    next_state.M[M_SECURING] = min(1.0, next_state.M[M_SECURING] + 0.1)
+    next_state.M[M_THRESHOLD] = min(1.0, next_state.M[M_THRESHOLD] + 0.1)
+    return next_state
