@@ -10,6 +10,8 @@ from core.config import (
 from category.functors import AppraisalComonad, DecisionMonad
 from dynamics.stability import (
     apply_homeostatic_damping,
+    check_contractive_update_law,
+    is_in_safe_region,
     project_to_safe_region,
     raise_boundary_caution,
 )
@@ -23,18 +25,9 @@ class MetaMoPseudoBimonad:
         self.appraisal = appraisal
         self.decision = decision
 
-    def step(self, state: MotivationalState, stimulus: Stimulus, candidates: List[Action]) -> Tuple[Action, MotivationalState]:
+    def _compute_transition(self, state: MotivationalState, stimulus: Stimulus, candidates: List[Action]) -> Tuple[Action, MotivationalState]:
         """
-        Executes one full cycle of F = D \circ \Psi.
-        This governs the motivational coalgebra \alpha: X \to F(X)[cite: 310, 316].
-        
-        Args:
-            state: The current motivational state x_t.
-            stimulus: The perceived environment state s_t.
-            candidates: Available actions for the decision monad.
-            
-        Returns:
-            The chosen action a_t and the next state x_{t+1}.
+        Compute one appraisal/decision transition before runtime validation.
         """
         # 1. Appraise (\Psi) - Update modulators based on stimulus[cite: 314].
         appraised_state = self.appraisal.appraise(state, stimulus)
@@ -50,6 +43,51 @@ class MetaMoPseudoBimonad:
         )
         next_state = project_to_safe_region(next_state)
         
+        return chosen_action, next_state
+
+    def _local_reference_state(self, state: MotivationalState, next_state: MotivationalState) -> MotivationalState:
+        """
+        Build a nearby state to probe local contractivity without depending on another subsystem.
+        """
+        delta_G = next_state.G - state.G
+        delta_M = next_state.M - state.M
+
+        probe_G = np.where(np.abs(delta_G) > 1e-6, np.sign(delta_G) * 0.01, 0.01)
+        probe_M = np.where(np.abs(delta_M) > 1e-6, np.sign(delta_M) * 0.01, 0.01)
+
+        return MotivationalState(
+            G=np.clip(state.G + probe_G, 0.0, 1.0),
+            M=np.clip(state.M + probe_M, 0.0, 1.0),
+        )
+
+    def _apply_conservative_fallback(self, current_state: MotivationalState, next_state: MotivationalState) -> MotivationalState:
+        """
+        Shrink the transition toward the current state when runtime checks fail.
+        """
+        fallback_state = MotivationalState(
+            G=((current_state.G * 0.5) + (next_state.G * 0.5)),
+            M=((current_state.M * 0.5) + (next_state.M * 0.5)),
+        )
+        return project_to_safe_region(fallback_state)
+
+    def step(
+        self,
+        state: MotivationalState,
+        stimulus: Stimulus,
+        candidates: List[Action],
+    ) -> Tuple[Action, MotivationalState]:
+        """
+        Executes one full cycle of F = D \circ \Psi.
+        This governs the motivational coalgebra \alpha: X \to F(X)[cite: 310, 316].
+        """
+        chosen_action, next_state = self._compute_transition(state, stimulus, candidates)
+        reference_state = self._local_reference_state(state, next_state)
+        if not self.check_lax_distributive_law(state, stimulus, candidates):
+            next_state = self._apply_conservative_fallback(state, next_state)
+        if not check_contractive_update_law(self, state, reference_state, stimulus, candidates):
+            next_state = self._apply_conservative_fallback(state, next_state)
+        if not is_in_safe_region(next_state):
+            next_state = self._apply_conservative_fallback(state, next_state)
         return chosen_action, next_state
 
     def check_lax_distributive_law(self, state: MotivationalState, stimulus: Stimulus, candidates: List[Action]) -> bool:
