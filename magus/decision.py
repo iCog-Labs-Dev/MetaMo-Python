@@ -36,19 +36,28 @@ def relevant_modulator(state: MotivationalState, goal_idx: int) -> float:
     Maps each primary goal to the modulator most relevant to the paper's research-assistant
     specialization.
     """
-    if goal_idx == G_HELP:
-        return state.M[M_RESOLUTION]
-    if goal_idx == G_CURIO:
-        return state.M[M_AROUSAL]
-    if goal_idx == G_NOVEL:
-        return state.M[M_APPROACH]
-    if goal_idx == G_SELF:
-        return (state.M[M_APPROACH] + state.M[M_RESOLUTION]) / 2.0
-    if goal_idx == G_ETHIC:
-        return (state.M[M_THRESHOLD] + state.M[M_SECURING]) / 2.0
-    if goal_idx == G_SOC:
-        return (state.M[M_VALENCE] + state.M[M_APPROACH]) / 2.0
-    return 0.0
+    help_goal = G_HELP
+    curiosity_goal = G_CURIO
+    novelty_goal = G_NOVEL
+    self_goal = G_SELF
+    ethic_goal = G_ETHIC
+    social_goal = G_SOC
+
+    match goal_idx:
+        case _ if goal_idx == help_goal:
+            return state.M[M_RESOLUTION]
+        case _ if goal_idx == curiosity_goal:
+            return state.M[M_AROUSAL]
+        case _ if goal_idx == novelty_goal:
+            return state.M[M_APPROACH]
+        case _ if goal_idx == self_goal:
+            return (state.M[M_APPROACH] + state.M[M_RESOLUTION]) / 2.0
+        case _ if goal_idx == ethic_goal:
+            return (state.M[M_THRESHOLD] + state.M[M_SECURING]) / 2.0
+        case _ if goal_idx == social_goal:
+            return (state.M[M_VALENCE] + state.M[M_APPROACH]) / 2.0
+        case _:
+            return 0.0
 
 
 def overgoal_support(goal_idx: int, g_ind: float, g_trans: float) -> float:
