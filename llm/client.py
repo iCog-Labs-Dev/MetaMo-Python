@@ -16,7 +16,7 @@ client = genai.Client()
 def query_llm_for_json(prompt: str) -> str:
     """Helper to query the Gemini LLM and enforce JSON output."""
     response = client.models.generate_content(
-        model='gemini-2.5-flash', 
+        model='gemini-3-flash-preview', 
         contents=prompt,
         config=types.GenerateContentConfig(
             # This explicitly forces the model to return valid JSON
