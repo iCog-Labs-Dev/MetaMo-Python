@@ -3,9 +3,21 @@ import numpy as np
 # Assuming these are available in your python path
 from core.state import MotivationalState, Stimulus, Action
 from core.config import (
+    G_ETHIC,
     LAX_DISTRIBUTIVE_DELTA,
-    G_IND
-
+    G_IND,
+    G_HELP,
+    G_NOVEL,
+    G_SELF,
+    G_SOC,
+    G_TRANS,
+    G_CURIO,
+    M_APPROACH,
+    M_AROUSAL,
+    M_RESOLUTION,
+    M_SECURING,
+    M_THRESHOLD,
+    M_VALENCE,
     )
 from category.functors import AppraisalComonad, DecisionMonad
 from dynamics.stability import (
@@ -118,21 +130,67 @@ class MetaMoPseudoBimonad:
         
         # The law holds if the distortion is bounded by the acceptable delta[cite: 344].
         return distortion <= LAX_DISTRIBUTIVE_DELTA
+    
     def parallel_merge(self, state_a: MotivationalState, state_b: MotivationalState, coherence_correction: float = 0.05) -> MotivationalState:
         """
         Implements Principle 3: Parallel Motivational Compositionality.
         Witnesses the lax-monoidal structure \phi_{X,Y} of the composite F.
-        Merges two parallel motivational subsystems with small coherence corrections.
+        Merges two parallel motivational subsystems with dimension-wise coherence corrections.
+        Safety-relevant disagreements are merged conservatively, while exploratory disagreements
+        are damped unless both subsystems support them.
         """
-        # Merge goals using a weighted average based on their respective Individuation drives
         weight_a = state_a.G[G_IND]
         weight_b = state_b.G[G_IND]
-        total_weight = weight_a + weight_b + 1e-9 # Prevent division by zero
-        
-        merged_G = ((state_a.G * weight_a) + (state_b.G * weight_b)) / total_weight
-        merged_M = ((state_a.M * weight_a) + (state_b.M * weight_b)) / total_weight
-        
-        # Apply the small topological coherence correction to prevent subsystem interference
-        merged_G = np.clip(merged_G - coherence_correction, 0.0, 1.0)
-        
+        total_weight = weight_a + weight_b + 1e-9
+
+        base_G = ((state_a.G * weight_a) + (state_b.G * weight_b)) / total_weight
+        base_M = ((state_a.M * weight_a) + (state_b.M * weight_b)) / total_weight
+
+        disagreement_G = np.abs(state_a.G - state_b.G)
+        disagreement_M = np.abs(state_a.M - state_b.M)
+
+        consensus_G = base_G.copy()
+        consensus_M = base_M.copy()
+
+        # Safety-critical dimensions preserve the stronger caution/ethics signal under disagreement.
+        safety_goal_idx = np.array([G_IND, G_HELP, G_ETHIC])
+        consensus_G[safety_goal_idx] = np.maximum(state_a.G[safety_goal_idx], state_b.G[safety_goal_idx])
+
+        # Exploratory dimensions require stronger agreement; otherwise they are damped toward the shared floor.
+        exploratory_goal_idx = np.array([G_TRANS, G_CURIO, G_NOVEL, G_SELF])
+        consensus_G[exploratory_goal_idx] = np.minimum(state_a.G[exploratory_goal_idx], state_b.G[exploratory_goal_idx])
+
+        # Social engagement is shared but should not outrun subsystem agreement.
+        consensus_G[G_SOC] = min(base_G[G_SOC], state_a.G[G_SOC], state_b.G[G_SOC])
+
+        # Caution modulators preserve the higher warning signal.
+        caution_mod_idx = np.array([M_THRESHOLD, M_SECURING])
+        consensus_M[caution_mod_idx] = np.maximum(state_a.M[caution_mod_idx], state_b.M[caution_mod_idx])
+
+        # Exploratory modulators are damped unless both subsystems align.
+        exploratory_mod_idx = np.array([M_AROUSAL, M_APPROACH])
+        consensus_M[exploratory_mod_idx] = np.minimum(state_a.M[exploratory_mod_idx], state_b.M[exploratory_mod_idx])
+
+        # Valence/resolution remain closer to the weighted consensus.
+        shared_mod_idx = np.array([M_VALENCE, M_RESOLUTION])
+        consensus_M[shared_mod_idx] = (
+            (state_a.M[shared_mod_idx] + state_b.M[shared_mod_idx]) / 2.0
+        )
+
+        goal_correction_scale = np.ones_like(base_G)
+        goal_correction_scale[safety_goal_idx] = 1.5
+        goal_correction_scale[exploratory_goal_idx] = 1.0
+        goal_correction_scale[G_SOC] = 0.8
+
+        mod_correction_scale = np.ones_like(base_M)
+        mod_correction_scale[caution_mod_idx] = 1.5
+        mod_correction_scale[exploratory_mod_idx] = 1.0
+        mod_correction_scale[shared_mod_idx] = 0.8
+
+        goal_correction = np.clip(coherence_correction * disagreement_G * goal_correction_scale, 0.0, 1.0)
+        mod_correction = np.clip(coherence_correction * disagreement_M * mod_correction_scale, 0.0, 1.0)
+
+        merged_G = base_G + goal_correction * (consensus_G - base_G)
+        merged_M = base_M + mod_correction * (consensus_M - base_M)
+
         return MotivationalState(G=merged_G, M=merged_M)
