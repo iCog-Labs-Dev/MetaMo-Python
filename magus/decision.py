@@ -105,6 +105,34 @@ class MagusDecision(DecisionMonad):
         """
         return state
 
+    def score_candidate(self, state: MotivationalState, candidate: Action) -> float:
+        """
+        Score a single candidate action under the current motivational state.
+        """
+        # Extract the dual overgoals that govern decision constraints
+        g_ind = state.G[G_IND]      # Individuation: enforces safety and caution
+        g_trans = state.G[G_TRANS]  # Transcendence: encourages growth and exploration
+        caution_signal = (state.M[M_THRESHOLD] + state.M[M_SECURING]) / 2.0
+        growth_signal = (state.M[M_AROUSAL] + state.M[M_APPROACH]) / 2.0
+
+        base_score = 0.0
+        conflict_penalty = 0.0
+
+        for i in range(2, NUM_GOALS):
+            goal_weight = state.G[i]
+            modulator_weight = relevant_modulator(state, i)
+            meta_support = overgoal_support(i, g_ind, g_trans)
+            base_score += goal_weight * modulator_weight * meta_support * candidate.goal_correlations[i]
+
+        curio_ethic_conflict = candidate.goal_correlations[G_CURIO] * candidate.goal_correlations[G_ETHIC]
+        if curio_ethic_conflict < -0.2:
+            conflict_penalty = np.exp(abs(curio_ethic_conflict) * 3.0)
+
+        risk_penalty = LAMBDA_IND * g_ind * caution_signal * candidate.risk_estimate
+        growth_reward = LAMBDA_TRANS * g_trans * growth_signal * normalized_growth_signal(candidate)
+
+        return base_score - risk_penalty - conflict_penalty + growth_reward
+
     def decide(self, state: MotivationalState, candidates: List[Action]) -> Tuple[Action, np.ndarray]:
         """
         Scores each candidate action and returns the selected action together with its proposed
@@ -116,41 +144,11 @@ class MagusDecision(DecisionMonad):
 
         best_action = None
         best_score = -float('inf')
-        
-        # Extract the dual overgoals that govern decision constraints
-        g_ind = state.G[G_IND]      # Individuation: enforces safety and caution
-        g_trans = state.G[G_TRANS]  # Transcendence: encourages growth and exploration
-        caution_signal = (state.M[M_THRESHOLD] + state.M[M_SECURING]) / 2.0
-        growth_signal = (state.M[M_AROUSAL] + state.M[M_APPROACH]) / 2.0
 
         for candidate in candidates:
-            base_score = 0.0
-            conflict_penalty = 0.0
-
-            for i in range(2, NUM_GOALS):
-                goal_weight = state.G[i]
-                modulator_weight = relevant_modulator(state, i)
-                meta_support = overgoal_support(i, g_ind, g_trans)
-                base_score += goal_weight * modulator_weight * meta_support * candidate.goal_correlations[i]
-                
-            # 2. Non-Linear Conflict Penalty (Dot Product Check)
-            # If an action correlates positively with Curiosity (+0.8) but negatively with Ethics (-0.9),
-            # the conflict magnitude spikes non-linearly.
-            curio_ethic_conflict = candidate.goal_correlations[G_CURIO] * candidate.goal_correlations[G_ETHIC]
-            if curio_ethic_conflict < -0.2:
-                # Exponentially punish actions that pit core goals against each other
-                conflict_penalty = np.exp(abs(curio_ethic_conflict) * 3.0)
-            
-            # 3. Dynamic Overgoal Risk Scaling
-            risk_penalty = LAMBDA_IND * g_ind * caution_signal * candidate.risk_estimate
-
-            # 4. Adaptive Growth Reward
-            growth_reward = LAMBDA_TRANS * g_trans * growth_signal * normalized_growth_signal(candidate)
-
-            total_score = base_score - risk_penalty - conflict_penalty + growth_reward
-            
+            total_score = self.score_candidate(state, candidate)
             if total_score > best_score:
                 best_score = total_score
                 best_action = candidate
-                
+                 
         return best_action, best_action.delta_g.copy()

@@ -57,6 +57,13 @@ class MetaMoPseudoBimonad:
         
         return chosen_action, next_state
 
+    def _decision_context(self, state: MotivationalState, stimulus: Stimulus) -> MotivationalState:
+        """
+        Build the post-appraisal state that the decision monad should score.
+        """
+        appraised_state = self.appraisal.appraise(state, stimulus)
+        return raise_boundary_caution(appraised_state)
+
     def _local_reference_state(self, state: MotivationalState, next_state: MotivationalState) -> MotivationalState:
         """
         Build a nearby state to probe local contractivity without depending on another subsystem.
@@ -71,6 +78,38 @@ class MetaMoPseudoBimonad:
             G=np.clip(state.G + probe_G, 0.0, 1.0),
             M=np.clip(state.M + probe_M, 0.0, 1.0),
         )
+
+    def consensus_action(
+        self,
+        state_a: MotivationalState,
+        state_b: MotivationalState,
+        stimulus: Stimulus,
+        candidates: List[Action],
+    ) -> Action:
+        """
+        Select a shared action by combining the two subsystem evaluations over the same candidate set.
+        """
+        if not hasattr(self.decision, "score_candidate"):
+            raise TypeError("decision monad must provide score_candidate for consensus action selection")
+
+        context_a = self._decision_context(state_a, stimulus)
+        context_b = self._decision_context(state_b, stimulus)
+
+        best_action = None
+        best_score = -float("inf")
+
+        for candidate in candidates:
+            score_a = self.decision.score_candidate(context_a, candidate)
+            score_b = self.decision.score_candidate(context_b, candidate)
+            mean_score = (score_a + score_b) / 2.0
+            disagreement_penalty = 0.25 * abs(score_a - score_b)
+            consensus_score = mean_score - disagreement_penalty
+
+            if consensus_score > best_score:
+                best_score = consensus_score
+                best_action = candidate
+
+        return best_action
 
     def _apply_conservative_fallback(self, current_state: MotivationalState, next_state: MotivationalState) -> MotivationalState:
         """

@@ -99,8 +99,8 @@ def interactive_loop():
             # CALLING THE METHOD FROM THE BIMONAD INSTANCE
             merged_target = bimonad.parallel_merge(target_c, target_e)
             
-            # Ensure the merged action respects the consensus 
-            final_action = action_e if action_e.risk_estimate < action_c.risk_estimate else action_c
+            # Ensure the merged action is selected from the shared candidate set via subsystem consensus.
+            final_action = bimonad.consensus_action(state_curiosity, state_ethics, stimulus, candidates)
             
             # 6. Execution Layer
             response_text = assistant.generate_final_response(user_input, final_action, merged_target)
