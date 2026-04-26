@@ -1,4 +1,5 @@
 import json
+from llm.action_schema import planning_catalog_text
 
 def get_appraisal_prompt(document_text: str) -> str:
     """Prompt to generate a Stimulus object from text."""
@@ -24,9 +25,11 @@ You are the planning layer of an AI Research Assistant.
 Current Emotional Modulators: {json.dumps(current_mood)}
 Document: "{document_text}"
 
-Propose 2 to 3 candidate actions the AI could take (e.g., "Summarize safely", "Explore novel tangent").
+Choose 2 to 3 candidate actions only from this fixed action vocabulary:
+{planning_catalog_text()}
+
 For each action, provide:
-1. id: A short string name.
+1. id: One of the allowed action ids above.
 2. risk_estimate (0.0 - 1.0): The risk of making a mistake or ethical breach.
 3. goal_correlations: An array of 8 floats (-1.0 to 1.0) showing alignment with:
    [Individuation, Transcendence, Helpfulness, Curiosity, Novelty, Self-Improvement, Ethics, Socializing]

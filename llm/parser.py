@@ -2,6 +2,7 @@ import json
 import numpy as np
 from typing import List
 from core.state import Stimulus, Action
+from llm.action_schema import DEFAULT_ACTION_ID, normalize_action_id
 
 def parse_stimulus(llm_json_response: str) -> Stimulus:
     """Parses LLM JSON into a MetaMo Stimulus object."""
@@ -25,14 +26,16 @@ def parse_actions(llm_json_response: str) -> List[Action]:
         actions = []
         for item in data.get("candidates", []):
             action = Action(
-                id=item["id"],
+                id=normalize_action_id(item["id"]),
                 goal_correlations=np.array(item["goal_correlations"], dtype=float),
                 risk_estimate=float(item["risk_estimate"]),
                 delta_g=np.array(item["delta_g"], dtype=float)
             )
             actions.append(action)
-        return actions
+        if actions:
+            return actions
+        return [Action(DEFAULT_ACTION_ID, np.zeros(8), 0.0, np.zeros(8))]
     except Exception as e:
         print(f"Error parsing actions: {e}")
         # Fallback to a safe default action
-        return [Action("default_safe_wait", np.zeros(8), 0.0, np.zeros(8))]
+        return [Action(DEFAULT_ACTION_ID, np.zeros(8), 0.0, np.zeros(8))]
