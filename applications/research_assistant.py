@@ -58,9 +58,11 @@ def interactive_loop():
     state_ethics = create_initial_state()
     state_ethics.G[G_IND] = 0.9      # Highly individuated/cautious
     
-    # Initialize a Translation Functor for peer simulation (Identity matrix for simplicity)
-    identity_matrix = np.eye(NUM_GOALS)
-    translator = TranslationFunctor(identity_matrix)
+    # Initialize a Translation Functor for peer simulation (identity maps for same-space simulation)
+    translator = TranslationFunctor(
+        goal_translation=np.eye(NUM_GOALS),
+        modulator_translation=np.eye(NUM_MODULATORS),
+    )
     
     print("\nSystem Ready. Subsystems: [Curiosity] & [Ethics]. Type 'quit' to exit.")
     print("-" * 60)

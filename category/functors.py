@@ -61,17 +61,37 @@ class TranslationFunctor:
     Implements Principle 2: Reciprocal Motivational State Simulation.
     Maps Agent A's state into Agent B's state space for seamless hand-off.
     """
-    def __init__(self, translation_matrix: np.ndarray):
-        # A matrix defining how Agent A's goals/modulators map to Agent B's
-        self.translation_matrix = translation_matrix
+    def __init__(self, goal_translation: np.ndarray, modulator_translation: np.ndarray):
+        """
+        Separate linear maps for translating goal-space and modulator-space coordinates.
+        """
+        if goal_translation.ndim != 2:
+            raise ValueError("goal_translation must be a 2D matrix")
+        if modulator_translation.ndim != 2:
+            raise ValueError("modulator_translation must be a 2D matrix")
+
+        goal_rows, goal_cols = goal_translation.shape
+        mod_rows, mod_cols = modulator_translation.shape
+
+        if goal_rows != goal_cols:
+            raise ValueError("goal_translation must be square for same-space peer simulation")
+        if mod_rows != mod_cols:
+            raise ValueError("modulator_translation must be square for same-space peer simulation")
+
+        self.goal_translation = goal_translation
+        self.modulator_translation = modulator_translation
         
     def simulate_peer(self, state_a: MotivationalState) -> MotivationalState:
         """
         Applies functor T to shadow another agent's motivational frame.
         """
-        # Translate goals and modulators via the mapping matrix
-        simulated_G = np.dot(self.translation_matrix, state_a.G)
-        simulated_M = np.dot(self.translation_matrix[:6, :6], state_a.M) # Assuming 6x6 for modulators
+        if self.goal_translation.shape[1] != state_a.G.shape[0]:
+            raise ValueError("goal translation dimensions do not match the state goal vector")
+        if self.modulator_translation.shape[1] != state_a.M.shape[0]:
+            raise ValueError("modulator translation dimensions do not match the state modulator vector")
+
+        simulated_G = np.dot(self.goal_translation, state_a.G)
+        simulated_M = np.dot(self.modulator_translation, state_a.M)
         
         return MotivationalState(
             G=np.clip(simulated_G, 0.0, 1.0),
