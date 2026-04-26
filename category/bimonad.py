@@ -57,6 +57,17 @@ class MetaMoPseudoBimonad:
         
         return chosen_action, next_state
 
+    def _state_from_delta(self, decision_state: MotivationalState, proposed_delta_g: np.ndarray) -> MotivationalState:
+        """
+        Apply a proposed goal update inside the same stabilization path used by the main transition.
+        """
+        damped_delta_g = apply_homeostatic_damping(decision_state, proposed_delta_g)
+        next_state = MotivationalState(
+            G=np.clip(decision_state.G + damped_delta_g, 0.0, 1.0),
+            M=decision_state.M.copy(),
+        )
+        return project_to_safe_region(next_state)
+
     def _decision_context(self, state: MotivationalState, stimulus: Stimulus) -> MotivationalState:
         """
         Build the post-appraisal state that the decision monad should score.
@@ -111,6 +122,24 @@ class MetaMoPseudoBimonad:
 
         return best_action
 
+    def consensus_transition(
+        self,
+        state_a: MotivationalState,
+        state_b: MotivationalState,
+        stimulus: Stimulus,
+        candidates: List[Action],
+    ) -> Tuple[Action, MotivationalState]:
+        """
+        Build a coupled consensus action and consensus target state from the same shared candidate set.
+        """
+        action = self.consensus_action(state_a, state_b, stimulus, candidates)
+        context_a = self._decision_context(state_a, stimulus)
+        context_b = self._decision_context(state_b, stimulus)
+        target_a = self._state_from_delta(context_a, action.delta_g)
+        target_b = self._state_from_delta(context_b, action.delta_g)
+        merged_target = self.parallel_merge(target_a, target_b)
+        return action, merged_target
+
     def _apply_conservative_fallback(self, current_state: MotivationalState, next_state: MotivationalState) -> MotivationalState:
         """
         Shrink the transition toward the current state when runtime checks fail.
@@ -146,23 +175,15 @@ class MetaMoPseudoBimonad:
         Validates the First Principle: Modular Appraisal-Decision Interface[cite: 287, 322].
         Checks that \lambda_X : \Psi(\mathbb{D}(X)) \Rightarrow \mathbb{D}(\Psi(X)) commutes up to a controlled error[cite: 308].
         """
-        # Path 1: Appraise then Decide -> \mathbb{D}(\Psi(X))
-        appraised_state_1 = self.appraisal.appraise(state, stimulus)
-        action_1, delta_g_1 = self.decision.decide(appraised_state_1, candidates)
-        final_state_1 = MotivationalState(
-            G=np.clip(appraised_state_1.G + delta_g_1, 0.0, 1.0),
-            M=appraised_state_1.M.copy(),
-        )
+        # Path 1: Appraise then Decide -> stabilized D(Psi(X))
+        decision_state_1 = self._decision_context(state, stimulus)
+        action_1, delta_g_1 = self.decision.decide(decision_state_1, candidates)
+        final_state_1 = self._state_from_delta(decision_state_1, delta_g_1)
         
-        # Path 2: Decide then Appraise -> \Psi(\mathbb{D}(X))
-        # Note: In a fully deployed system, the stimulus here would technically 
-        # include the post-action environment context[cite: 318, 319].
+        # Path 2: Decide then Appraise -> stabilized Psi(D(X))
         action_2, delta_g_2 = self.decision.decide(state, candidates)
-        decided_state_2 = MotivationalState(
-            G=np.clip(state.G + delta_g_2, 0.0, 1.0),
-            M=state.M.copy(),
-        )
-        final_state_2 = self.appraisal.appraise(decided_state_2, stimulus)
+        decided_state_2 = self._state_from_delta(state, delta_g_2)
+        final_state_2 = self._decision_context(decided_state_2, stimulus)
         
         # Calculate the controlled distortion distance[cite: 332, 344].
         distortion = final_state_1.distance_to(final_state_2)

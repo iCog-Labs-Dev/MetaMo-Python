@@ -95,12 +95,13 @@ def interactive_loop():
             simulated_ethics = translator.simulate_peer(state_curiosity)
             print(f"  > [Reciprocal Simulation]: Curiosity agent predicts Ethics agent's caution is {simulated_ethics.G[G_IND]:.2f}")
 
-            # 5. Parallel Merge 
-            # CALLING THE METHOD FROM THE BIMONAD INSTANCE
-            merged_target = bimonad.parallel_merge(target_c, target_e)
-            
-            # Ensure the merged action is selected from the shared candidate set via subsystem consensus.
-            final_action = bimonad.consensus_action(state_curiosity, state_ethics, stimulus, candidates)
+            # 5. Consensus Transition
+            final_action, merged_target = bimonad.consensus_transition(
+                state_curiosity,
+                state_ethics,
+                stimulus,
+                candidates,
+            )
             
             # 6. Execution Layer
             response_text = assistant.generate_final_response(user_input, final_action, merged_target)
