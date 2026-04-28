@@ -20,6 +20,7 @@ MetaMo employs a categorical approach to motivation, combining:
 - **Pseudo-Bimonad (F = D o Psi)**: The composite operator that governs the full motivational cycle
 
 The framework ensures:
+
 - Modular separation between appraisal and decision processes
 - Contractive update laws for stability near safety boundaries
 - Homeostatic motivation through dual overgoal dynamics (Individuation and Transcendence)
@@ -31,11 +32,11 @@ The framework ensures:
 git clone https://github.com/Nahom32/MetaMo-Python.git
 cd MetaMo-Python
 
-
 source venv/bin/activate
+pip install -r requirements.txt
 ```
 
-No additional dependencies are required beyond NumPy.
+The core motivational engine depends on NumPy. The LLM-backed demo also uses `google-genai` and `dotenv`.
 
 ## File Structure
 
@@ -79,11 +80,111 @@ MetaMo-Python/
 |-- LICENSE
 ```
 
+## Dependency Diagram
+
+Arrows point from each module to the internal module or external package it imports.
+
+```mermaid
+flowchart LR
+    subgraph Application
+        ResearchAssistant["applications/research_assistant.py"]
+    end
+
+    subgraph Core
+        Config["core/config.py"]
+        State["core/state.py"]
+    end
+
+    subgraph Category
+        Functors["category/functors.py"]
+        Bimonad["category/bimonad.py"]
+    end
+
+    subgraph Implementations
+        Appraisal["openpsi/appraisal.py"]
+        Decision["magus/decision.py"]
+    end
+
+    subgraph Dynamics
+        Coherence["dynamics/coherence.py"]
+        Stability["dynamics/stability.py"]
+    end
+
+    subgraph LLM
+        Prompts["llm/prompts.py"]
+        Parser["llm/parser.py"]
+        Client["llm/client.py"]
+        Conversation["llm/conversation.py"]
+    end
+
+    subgraph External
+        NumPy["numpy"]
+        GoogleGenAI["google-genai"]
+        Dotenv["dotenv"]
+    end
+
+    ResearchAssistant --> Functors
+    ResearchAssistant --> State
+    ResearchAssistant --> Config
+    ResearchAssistant --> Stability
+    ResearchAssistant --> Appraisal
+    ResearchAssistant --> Decision
+    ResearchAssistant --> Bimonad
+    ResearchAssistant --> Coherence
+    ResearchAssistant --> Client
+    ResearchAssistant --> Conversation
+    ResearchAssistant --> NumPy
+
+    State --> Config
+    State --> NumPy
+
+    Functors --> State
+    Functors --> NumPy
+
+    Bimonad --> State
+    Bimonad --> Config
+    Bimonad --> Functors
+    Bimonad --> NumPy
+
+    Appraisal --> State
+    Appraisal --> Config
+    Appraisal --> Functors
+    Appraisal --> NumPy
+
+    Decision --> State
+    Decision --> Config
+    Decision --> Functors
+    Decision --> NumPy
+
+    Coherence --> State
+    Coherence --> Config
+    Coherence --> NumPy
+
+    Stability --> State
+    Stability --> Config
+    Stability --> Bimonad
+    Stability --> NumPy
+
+    Parser --> State
+    Parser --> NumPy
+
+    Client --> Prompts
+    Client --> Parser
+    Client --> State
+    Client --> GoogleGenAI
+    Client --> Dotenv
+
+    Conversation --> State
+    Conversation --> Client
+    Conversation --> GoogleGenAI
+```
+
 ## Core Concepts
 
 ### Motivational State
 
 The system state is represented as `X = G x M`:
+
 - **Goal Vector (G)**: 8-dimensional vector containing overgoals (Individuation, Transcendence) and primary goals (Help, Curiosity, Novelty, Self, Ethics, Social)
 - **Modulator Vector (M)**: 6-dimensional vector containing affective modulators (Valence, Arousal, Approach, Resolution, Threshold, Securing)
 
@@ -95,6 +196,7 @@ The system state is represented as `X = G x M`:
 ### Stability Mechanisms
 
 The framework implements two key stability guarantees:
+
 1. **Safe Region Detection**: Monitors whether the agent's state remains within bounds (`g_Ind >= theta_safe` and `||G|| <= G_max`)
 2. **Contractive Update Law**: Ensures `d(F(x), F(y)) <= c * d(x,y) + epsilon` near boundaries, guaranteeing convergence to safe states
 
@@ -150,15 +252,15 @@ This runs a simulation demonstrating a MetaMo-powered curious research assistant
 
 ## Key Parameters
 
-| Parameter | Description | Default |
-|-----------|-------------|---------|
-| NUM_GOALS | Number of goal dimensions | 8 |
-| NUM_MODULATORS | Number of modulator dimensions | 6 |
-| THETA_SAFE | Minimum individuation threshold | 0.3 |
-| G_MAX | Maximum goal vector norm | 5.0 |
-| C_CONTRACT | Contractivity constant | 0.9 |
-| LAMBDA_IND | Individuation penalty weight | 0.5 |
-| LAMBDA_TRANS | Transcendence reward weight | 0.5 |
+| Parameter      | Description                     | Default |
+| -------------- | ------------------------------- | ------- |
+| NUM_GOALS      | Number of goal dimensions       | 8       |
+| NUM_MODULATORS | Number of modulator dimensions  | 6       |
+| THETA_SAFE     | Minimum individuation threshold | 0.3     |
+| G_MAX          | Maximum goal vector norm        | 5.0     |
+| C_CONTRACT     | Contractivity constant          | 0.9     |
+| LAMBDA_IND     | Individuation penalty weight    | 0.5     |
+| LAMBDA_TRANS   | Transcendence reward weight     | 0.5     |
 
 ## License
 
