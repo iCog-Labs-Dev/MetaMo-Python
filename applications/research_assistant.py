@@ -1,10 +1,15 @@
 import numpy as np
+import os
 import sys
+
+if __package__ in (None, ""):
+    repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    if repo_root not in sys.path:
+        sys.path.insert(0, repo_root)
 
 from category.functors import TranslationFunctor
 from core.state import MotivationalState
 from core.config import G_IND, G_TRANS, M_AROUSAL, M_SECURING
-from dynamics.stability import apply_homeostatic_damping
 from openpsi.appraisal import OpenPsiAppraisal
 from magus.decision import MagusDecision
 from category.bimonad import MetaMoPseudoBimonad
@@ -95,14 +100,10 @@ def interactive_loop():
             # Ensure the merged action respects the consensus 
             final_action = action_e if action_e.risk_estimate < action_c.risk_estimate else action_c
             
-            # 6. Active Homeostatic Damping 
-            damped_delta_g = apply_homeostatic_damping(merged_current, final_action.delta_g)
-            merged_target.G = np.clip(merged_target.G + damped_delta_g, 0.0, 1.0)
-            
-            # 7. Execution Layer
+            # 6. Execution Layer
             response_text = assistant.generate_final_response(user_input, final_action, merged_target)
             
-            # 8. Incremental Embodiment (Update States)
+            # 7. Incremental Embodiment (Update States)
             state_curiosity = blend_states(state_curiosity, target_c)
             state_ethics = blend_states(state_ethics, target_e)
             

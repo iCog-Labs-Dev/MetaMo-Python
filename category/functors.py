@@ -45,11 +45,13 @@ class DecisionMonad(ABC):
         pass
 
     @abstractmethod
-    def decide(self, state: MotivationalState, candidates: List[Action]) -> Tuple[Action, MotivationalState]:
+    def decide(self, state: MotivationalState, candidates: List[Action]) -> Tuple[Action, np.ndarray]:
         """
         The endofunctor application.
         Scores each candidate action under the updated goals and modulators[cite: 315].
-        Returns the chosen action and the resulting state (G + \Delta G, M)[cite: 120, 169].
+        Returns the chosen action and the proposed goal update \Delta G[cite: 120, 169].
+        The composite operator F = D \circ \Psi is responsible for turning this proposal into
+        the finalized next motivational state.
         """
         pass
 

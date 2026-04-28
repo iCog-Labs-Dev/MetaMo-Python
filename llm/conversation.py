@@ -16,7 +16,7 @@ class MetaMoChatAssistant:
         # Create a persistent chat session for user interaction.
         # We use a standard text-based configuration here, NOT the JSON one used for MetaMo math.
         self.chat = self.client.chats.create(
-            model='gemini-2.5-flash',
+            model='gemini-3-flash-preview',
             config=types.GenerateContentConfig(
                 temperature=0.7, # Higher temperature for more natural conversation
                 system_instruction=(

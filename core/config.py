@@ -10,7 +10,7 @@ LAMBDA_IND = 0.5  # Weight of the individuation penalty (suppresses risk).
 LAMBDA_TRANS = 0.5  # Weight of the transcendence reward (encourages growth).
 
 THETA_SAFE = 0.3  # Minimum required level of individuation for safety.
-G_MAX = 5.0  # Maximum allowed norm for the goal vector.
+G_MAX = 2.0
 
 # Contractive update law parameters for states near the boundary[cite: 132, 176].
 # d(F(x), F(y)) <= C_CONTRACT * d(x, y) + EPSILON
