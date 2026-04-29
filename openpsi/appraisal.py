@@ -42,32 +42,58 @@ class OpenPsiAppraisal(AppraisalComonad):
         g_ind = state.G[G_IND]      # Individuation
         g_trans = state.G[G_TRANS]  # Transcendence
         arousal_feedback = sigmoid((state.M[M_AROUSAL] - 0.5) * 5.0)
+        trans_scale = np.exp(g_trans - 0.5)
+        ind_scale = np.exp(g_ind - 0.5)
+        benign_novelty = stimulus.novelty * (1.0 - stimulus.risk)
+        demanding_context = (stimulus.effort + stimulus.risk) / 2.0
         
-        # 2. Calculate base modulator updates from the stimulus
-        # OpenPsi novelty raises arousal and approach[cite: 188].
-        delta_arousal = stimulus.novelty * (1.0 + 0.5 * arousal_feedback)
-        delta_approach = stimulus.novelty
-        
-        # Goal conduciveness raises valence and resolution[cite: 188].
-        delta_valence = stimulus.conduciveness
-        delta_resolution = stimulus.conduciveness
-        risk_spike = stimulus.risk * np.exp(g_ind * 2.0)
+        # 2. Calculate appraisal-driven updates per modulator.
+        # Novel but low-risk inputs should feel energizing and attractive;
+        # risky or demanding inputs should raise caution and processing depth.
+        delta_valence = (
+            0.75 * stimulus.conduciveness
+            + 0.25 * benign_novelty
+            - 0.55 * stimulus.risk
+            - 0.15 * stimulus.effort
+        )
+        delta_arousal = (
+            stimulus.novelty * (1.0 + 0.5 * arousal_feedback)
+            + 0.15 * stimulus.risk
+            - 0.35 * stimulus.effort
+        )
+        delta_approach = (
+            0.65 * benign_novelty
+            + 0.35 * stimulus.conduciveness
+            - 0.75 * stimulus.risk
+        )
+        delta_resolution = (
+            0.55 * stimulus.conduciveness
+            + 0.35 * stimulus.effort
+            + 0.20 * stimulus.risk
+        )
+        delta_threshold = (
+            0.70 * stimulus.risk
+            + 0.25 * demanding_context
+            - 0.15 * stimulus.conduciveness
+        )
+        delta_securing = (
+            0.80 * stimulus.risk
+            + 0.20 * stimulus.effort
+            - 0.30 * benign_novelty
+            - 0.10 * stimulus.conduciveness
+        )
         
         # 3. Apply MAGUS Overgoal Scaling
-        # g_over^Trans scales up arousal and approach to encourage adaptive risk-taking.
-        M_prime[M_AROUSAL] += delta_arousal * np.exp(g_trans - 0.5)
-        M_prime[M_APPROACH] += delta_approach * np.exp(g_trans - 0.5)
-    
-        M_prime[M_THRESHOLD] += risk_spike
-        M_prime[M_SECURING] += risk_spike
-    
+        # g_over^Trans scales up arousal and approach to encourage adaptive risk-taking,
+        # while g_over^Ind scales up threshold and securing to preserve safety.
+        M_prime[M_AROUSAL] += delta_arousal * trans_scale
+        M_prime[M_APPROACH] += delta_approach * trans_scale
+        M_prime[M_THRESHOLD] += delta_threshold * ind_scale
+        M_prime[M_SECURING] += delta_securing * ind_scale
         M_prime[M_VALENCE] += delta_valence
         M_prime[M_RESOLUTION] += delta_resolution
-    
-        M_prime[M_AROUSAL] -= stimulus.effort * 0.5
-        
-        
-        # 5. Bound the modulators to ensure they stay within [0, 1] mathematically
+
+        # 4. Bound the modulators to ensure they stay within [0, 1] mathematically.
         M_prime = 1.0 / (1.0 + np.exp(-4.0 * (M_prime - 0.5)))
         
         # Return a new state object with the unchanged G and the newly updated M'

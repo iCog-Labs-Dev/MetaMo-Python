@@ -21,20 +21,30 @@ def calculate_blend_factor(state: MotivationalState) -> float:
     # Ensure alpha remains strictly bounded between 0 and 1.
     return float(np.clip(alpha, 0.0, 1.0))
 
-def blend_states(current_state: MotivationalState, target_state: MotivationalState) -> MotivationalState:
+def blend_states(current_state: MotivationalState, target_state: MotivationalState, lipschitz_constant: float = 1.0, max_allowed_drift: float = 0.1,
+    min_alpha_scale: float = 0.125,) -> MotivationalState:
     """
     Smoothly interpolates between the current state (x_t) and the proposed target state (x^*).
     Formula: x_{t+1} = (1 - \alpha)x_t + \alpha * x^*
+    The step size is reduced automatically if the proposed blend violates the self-model drift bound.
     """
-    alpha = calculate_blend_factor(current_state)
-    
-    # Blend the goal vectors (G)
-    next_G = (1.0 - alpha) * current_state.G + alpha * target_state.G
-    
-    # Blend the modulator vectors (M)
-    next_M = (1.0 - alpha) * current_state.M + alpha * target_state.M
-    
-    return MotivationalState(G=next_G, M=next_M)
+    base_alpha = calculate_blend_factor(current_state)
+    alpha = base_alpha
+    min_alpha = base_alpha * min_alpha_scale
+
+    while True:
+        next_state = MotivationalState(
+            G=((1.0 - alpha) * current_state.G) + (alpha * target_state.G),
+            M=((1.0 - alpha) * current_state.M) + (alpha * target_state.M),
+        )
+        if check_self_model_drift(
+            current_state,
+            next_state,
+            lipschitz_constant=lipschitz_constant,
+            max_allowed_drift=max_allowed_drift,
+        ) or alpha <= min_alpha:
+            return next_state
+        alpha *= 0.5
 
 def check_self_model_drift(
     current_state: MotivationalState, 

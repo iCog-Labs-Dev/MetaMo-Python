@@ -98,8 +98,8 @@ def check_contractive_update_law(
     dist_initial = x.distance_to(y)
     
     # Apply the F operator to both states
-    _, F_x = bimonad.step(x, stimulus, candidates)
-    _, F_y = bimonad.step(y, stimulus, candidates)
+    _, F_x = bimonad._compute_transition(x, stimulus, candidates)
+    _, F_y = bimonad._compute_transition(y, stimulus, candidates)
     
     # Calculate final distance d(F(x), F(y))
     dist_final = F_x.distance_to(F_y)

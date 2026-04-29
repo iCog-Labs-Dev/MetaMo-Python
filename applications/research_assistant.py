@@ -58,9 +58,11 @@ def interactive_loop():
     state_ethics = create_initial_state()
     state_ethics.G[G_IND] = 0.9      # Highly individuated/cautious
     
-    # Initialize a Translation Functor for peer simulation (Identity matrix for simplicity)
-    identity_matrix = np.eye(NUM_GOALS)
-    translator = TranslationFunctor(identity_matrix)
+    # Initialize a Translation Functor for peer simulation (identity maps for same-space simulation)
+    translator = TranslationFunctor(
+        goal_translation=np.eye(NUM_GOALS),
+        modulator_translation=np.eye(NUM_MODULATORS),
+    )
     
     print("\nSystem Ready. Subsystems: [Curiosity] & [Ethics]. Type 'quit' to exit.")
     print("-" * 60)
@@ -93,12 +95,13 @@ def interactive_loop():
             simulated_ethics = translator.simulate_peer(state_curiosity)
             print(f"  > [Reciprocal Simulation]: Curiosity agent predicts Ethics agent's caution is {simulated_ethics.G[G_IND]:.2f}")
 
-            # 5. Parallel Merge 
-            # CALLING THE METHOD FROM THE BIMONAD INSTANCE
-            merged_target = bimonad.parallel_merge(target_c, target_e)
-            
-            # Ensure the merged action respects the consensus 
-            final_action = action_e if action_e.risk_estimate < action_c.risk_estimate else action_c
+            # 5. Consensus Transition
+            final_action, merged_target = bimonad.consensus_transition(
+                state_curiosity,
+                state_ethics,
+                stimulus,
+                candidates,
+            )
             
             # 6. Execution Layer
             response_text = assistant.generate_final_response(user_input, final_action, merged_target)
