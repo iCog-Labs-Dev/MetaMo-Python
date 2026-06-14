@@ -24,10 +24,3 @@ ALPHA_0 = 0.1  # Base rate slowed down by individuation[cite: 135].
 BETA_0 = 0.15  # Base rate sped up by transcendence[cite: 135].
 
 LAX_DISTRIBUTIVE_DELTA = 1e-3
-
-# --- Paper Loading ---
-PAPER_CHUNK_SIZE = 2000
-PAPER_CHUNK_OVERLAP = 200
-PAPER_MAX_CHARS = 100_000
-PAPER_STORAGE_PATH = ".papers"
-PAPER_CONTEXT_MAX_CHARS = 4000
