@@ -1,4 +1,3 @@
-# metamo/core.py
 """
 Adapter layer that lets the use-case gridworld agent reason with the root MetaMo pseudo-bimonad.
 """

@@ -1,5 +1,3 @@
-
-# usecase/metamo/state.py
 """
 Creates the same MetaMo motivational state used by the root architecture.
 """
