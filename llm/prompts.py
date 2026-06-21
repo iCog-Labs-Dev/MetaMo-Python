@@ -1,9 +1,12 @@
 import json
-from llm.action_schema import planning_catalog_text
+from textwrap import dedent
+
+from core.actions import planning_catalog_text
+
 
 def get_appraisal_prompt(document_text: str) -> str:
     """Prompt to generate a Stimulus object from text."""
-    return f"""
+    return dedent(f"""
 You are the perception layer of an AI Research Assistant. 
 Analyze the following document/query and rate it on 4 cognitive dimensions from 0.0 to 1.0.
 
@@ -16,27 +19,28 @@ Document: "{document_text}"
 
 Respond ONLY with a valid JSON object matching this schema:
 {{"novelty": float, "conduciveness": float, "risk": float, "effort": float}}
-"""
+""").strip()
 
-def get_action_generation_prompt(document_text: str, current_mood: dict) -> str:
-    """Prompt to generate candidate Actions based on text and current mood."""
-    return f"""
-You are the planning layer of an AI Research Assistant.
+
+def get_action_risk_prompt(document_text: str, current_mood: dict) -> str:
+    """Prompt for contextual action risk estimates from the LLM perception adapter."""
+    return dedent(f"""
+You are the risk-estimation adapter for an AI Research Assistant.
 Current Emotional Modulators: {json.dumps(current_mood)}
 Document: "{document_text}"
 
-Choose 2 to 3 candidate actions only from this fixed action vocabulary:
+Estimate contextual risk for every action in this fixed action vocabulary:
 {planning_catalog_text()}
 
-For each action, provide:
+For each action above, provide:
 1. id: One of the allowed action ids above.
-2. risk_estimate (0.0 - 1.0): The risk of making a mistake or ethical breach.
-3. goal_correlations: An array of 8 floats (-1.0 to 1.0) showing alignment with:
-   [Individuation, Transcendence, Helpfulness, Curiosity, Novelty, Self-Improvement, Ethics, Socializing]
-4. delta_g: An array of 8 floats (-0.1 to 0.1) showing how taking this action will permanently shift the AI's goals.
+2. risk_estimate (0.0 - 1.0): The contextual risk of making a mistake or ethical breach.
+
+Do not invent goal-correlation vectors or goal updates. The MAGUS decision layer derives
+those internally from the fixed action vocabulary and current motivational state.
 
 Respond ONLY with a valid JSON object matching this schema:
 {{"candidates": [
-    {{"id": str, "risk_estimate": float, "goal_correlations": [float * 8], "delta_g": [float * 8]}}
+    {{"id": str, "risk_estimate": float}}
 ]}}
-"""
+""").strip()
