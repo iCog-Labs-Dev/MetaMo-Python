@@ -13,7 +13,8 @@ from category.bimonad import MetaMoPseudoBimonad
 from dynamics.coherence import blend_states
 from openpsi.appraisal import OpenPsiAppraisal
 from magus.decision import MagusDecision
-from llm.client import get_stimulus_from_text, get_candidates_from_text
+from magus.candidates import build_candidate_actions
+from llm.client import get_action_risks_from_text, get_stimulus_from_text
 from llm.conversation import MetaMoChatAssistant
 
 
@@ -86,7 +87,8 @@ class MetaMoEngine:
         stimulus = get_stimulus_from_text(user_input)
         merged_current = self.bimonad.parallel_merge(self.state_curiosity, self.state_ethics)
         current_mood = {"arousal": merged_current.M[M_AROUSAL], "caution": merged_current.M[M_SECURING]}
-        candidates = get_candidates_from_text(user_input, current_mood)
+        risk_overrides = get_action_risks_from_text(user_input, current_mood)
+        candidates = build_candidate_actions(user_input, stimulus, risk_overrides)
 
         action_c, target_c = self.bimonad.step(self.state_curiosity, stimulus, candidates)
         action_e, target_e = self.bimonad.step(self.state_ethics, stimulus, candidates)
