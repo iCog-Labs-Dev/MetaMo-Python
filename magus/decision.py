@@ -24,6 +24,12 @@ from core.config import (
 )
 from category.functors import DecisionMonad
 
+DELTA_G_MAX_STEP = 0.1
+ALIGNMENT_UPDATE_GAIN = 0.05
+OVERGOAL_UPDATE_GAIN = 0.02
+RISK_STABILIZATION_GAIN = 0.03
+
+
 def sigmoid(x: float) -> float:
     return 1.0 / (1.0 + np.exp(-x))
 
@@ -80,16 +86,42 @@ def overgoal_support(goal_idx: int, g_ind: float, g_trans: float) -> float:
 
 def normalized_growth_signal(candidate: Action) -> float:
     """
-    Measures whether a candidate supports beneficial exploratory growth, using both
-    alignment and proposed goal updates on the growth-oriented goals.
+    Measures whether a candidate supports beneficial exploratory growth.
     """
-    exploratory_alignment = np.mean([
-        positive_part(candidate.goal_correlations[G_CURIO]),
-        positive_part(candidate.goal_correlations[G_NOVEL]),
-        positive_part(candidate.goal_correlations[G_SELF]),
-    ])
-    growth_shift = np.mean(np.clip(candidate.delta_g[[G_CURIO, G_NOVEL, G_SELF]] / 0.1, 0.0, 1.0))
-    return float((0.7 * exploratory_alignment) + (0.3 * growth_shift))
+    exploratory_alignment = np.mean(
+        [
+            positive_part(candidate.goal_correlations[G_CURIO]),
+            positive_part(candidate.goal_correlations[G_NOVEL]),
+            positive_part(candidate.goal_correlations[G_SELF]),
+        ]
+    )
+    return float(exploratory_alignment)
+
+
+def proposed_goal_update(state: MotivationalState, candidate: Action) -> np.ndarray:
+    """
+    Derive Delta G from the selected action under the current motivational state.
+
+    The paper places the goal update inside the MAGUS decision step. Keeping it here
+    prevents fallback candidates from carrying hand-authored update vectors.
+    """
+    delta = np.zeros(NUM_GOALS, dtype=float)
+    positive_alignment = np.clip(candidate.goal_correlations, 0.0, 1.0)
+
+    for goal_idx in range(2, NUM_GOALS):
+        alignment = positive_alignment[goal_idx]
+        if alignment == 0.0:
+            continue
+        need = 1.0 - state.G[goal_idx]
+        modulator_weight = relevant_modulator(state, goal_idx)
+        delta[goal_idx] = ALIGNMENT_UPDATE_GAIN * alignment * need * modulator_weight
+
+    caution_signal = (state.M[M_THRESHOLD] + state.M[M_SECURING]) / 2.0
+    delta[G_IND] = RISK_STABILIZATION_GAIN * candidate.risk_estimate * caution_signal
+    delta[G_TRANS] = OVERGOAL_UPDATE_GAIN * normalized_growth_signal(candidate) * state.M[M_APPROACH]
+
+    return np.clip(delta, -DELTA_G_MAX_STEP, DELTA_G_MAX_STEP)
+
 
 class MagusDecision(DecisionMonad):
     """
@@ -124,9 +156,12 @@ class MagusDecision(DecisionMonad):
             meta_support = overgoal_support(i, g_ind, g_trans)
             base_score += goal_weight * modulator_weight * meta_support * candidate.goal_correlations[i]
 
-        curio_ethic_conflict = candidate.goal_correlations[G_CURIO] * candidate.goal_correlations[G_ETHIC]
-        if curio_ethic_conflict < -0.2:
-            conflict_penalty = np.exp(abs(curio_ethic_conflict) * 3.0)
+        risky_curiosity_conflict = (
+            positive_part(candidate.goal_correlations[G_CURIO])
+            * positive_part(-candidate.goal_correlations[G_ETHIC])
+        )
+        if risky_curiosity_conflict > 0.2:
+            conflict_penalty = np.exp(risky_curiosity_conflict * 3.0)
 
         risk_penalty = LAMBDA_IND * g_ind * caution_signal * candidate.risk_estimate
         growth_reward = LAMBDA_TRANS * g_trans * growth_signal * normalized_growth_signal(candidate)
@@ -151,4 +186,4 @@ class MagusDecision(DecisionMonad):
                 best_score = total_score
                 best_action = candidate
                  
-        return best_action, best_action.delta_g.copy()
+        return best_action, proposed_goal_update(state, best_action)
