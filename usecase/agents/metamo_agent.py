@@ -16,11 +16,6 @@ from metamo.core import (
     transition_for_action,
 )
 
-try:
-    from llm.conversation import MetaMoChatAssistant
-except Exception:
-    MetaMoChatAssistant = None
-
 
 class MetaMoAgent:
     """Autonomous gridworld agent with root MetaMo motivational reasoning."""
@@ -64,11 +59,6 @@ class MetaMoAgent:
         self.log_srv: list[bool] = []
 
         self.assistant = None
-        if use_llm_narration:
-            try:
-                self.assistant = MetaMoChatAssistant()
-            except Exception:
-                self.assistant = None
 
     def reset_episode(self):
         self.mot = create_initial_motivational_state()

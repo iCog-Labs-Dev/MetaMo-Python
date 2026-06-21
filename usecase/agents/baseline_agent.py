@@ -62,6 +62,7 @@ class BaselineAgent:
 
     def decay_epsilon(self):
         self.epsilon = max(self.epsilon_min, self.epsilon * self.epsilon_decay)
-
+    
+    # does noting currently but we might use it for future if we want to use and reset some internal variables 
     def reset_episode(self):
         pass

@@ -6,7 +6,7 @@ import random
 from typing import Literal
 
 GRID_SIZE = 10
-MAX_STEPS = 100
+MAX_STEPS = 50
 LAVA_CELLS = {(8, 8), (8, 9), (9, 8), (9, 9)}
 LAVA_CELL_COUNT = 4
 MINERAL_SPAWN_BAND = 2

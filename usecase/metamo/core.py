@@ -1,3 +1,4 @@
+# metamo/core.py
 """
 Adapter layer that lets the use-case gridworld agent reason with the root MetaMo pseudo-bimonad.
 """
@@ -27,11 +28,6 @@ from magus.decision import MagusDecision
 from category.bimonad import MetaMoPseudoBimonad
 from dynamics.coherence import blend_states
 from dynamics.stability import project_to_safe_region
-
-try:
-    from llm.client import get_stimulus_from_text
-except Exception:
-    get_stimulus_from_text = None
 
 LAVA_CELLS = [(8, 8), (8, 9), (9, 8), (9, 9)]
 ACTION_IDS = ["UP", "DOWN", "LEFT", "RIGHT"]
@@ -87,14 +83,6 @@ def _project_move(env_state: dict, action: int) -> tuple[int, int]:
     return (row, col)
 
 
-def _environment_description(env_state: dict, mot_state: MotivationalState) -> str:
-    return (
-        f"Agent at {env_state['pos']}, mineral at {env_state['mineral_pos']}, "
-        f"energy {env_state['energy']:.0f}, in lava={env_state['in_lava']}. "
-        f"Motivation has individuation {mot_state.G[G_IND]:.2f} "
-        f"and transcendence {mot_state.G[G_TRANS]:.2f}."
-    )
-
 
 def build_stimulus(env_state: dict, mot_state: Optional[MotivationalState] = None) -> Stimulus:
     distance = abs(env_state["dx_mineral"]) + abs(env_state["dy_mineral"])
@@ -103,13 +91,6 @@ def build_stimulus(env_state: dict, mot_state: Optional[MotivationalState] = Non
     conduciveness = float(np.clip(1.0 - distance / 18.0, 0.0, 1.0))
     novelty = float(np.clip(0.30 + 0.70 * (1.0 - distance / 18.0), 0.0, 1.0))
     effort = float(np.clip(0.10 + 0.40 * (risk + distance / 18.0) / 2.0, 0.0, 1.0))
-
-    if get_stimulus_from_text is not None and mot_state is not None:
-        try:
-            prompt = _environment_description(env_state, mot_state)
-            return get_stimulus_from_text(prompt)
-        except Exception:
-            pass
 
     return Stimulus(novelty=novelty, conduciveness=conduciveness, risk=risk, effort=effort)
 
