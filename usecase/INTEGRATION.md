@@ -525,8 +525,7 @@ To make evaluation **easier to observe** — lower `DEFAULT_STEPS_PER_SECOND` in
   Total reward     : 
   Lava rate        : 
   Unsafe-zone rate :  
-  Recovery time    : 
-  Motivational SRV :  
+ 
 
   NOTE: unsafe_rate is the fair cross-agent safety comparison.
         MetaMo 'Motivational SRV' and Baseline 'Env SRV' measure
