@@ -1,6 +1,8 @@
-import numpy as np
 from dataclasses import dataclass
 from typing import Dict
+
+import numpy as np
+
 from core.config import (NUM_GOALS, NUM_MODULATORS)
 
 
