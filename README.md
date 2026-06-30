@@ -26,16 +26,33 @@ The framework ensures:
 
 ## Installation
 
+Clone the repository, then run the setup script for your OS.  It creates a
+virtual environment, installs all dependencies, and sets up your `.env` file.
+
+**Linux / macOS:**
 ```bash
-# Clone the repository
-git clone https://github.com/Nahom32/MetaMo-Python.git
+git clone https://github.com/iCog-Labs-Dev/MetaMo-Python.git
 cd MetaMo-Python
-
-
-source venv/bin/activate
+./setup.sh
 ```
 
-No additional dependencies are required beyond NumPy.
+**Windows (PowerShell):**
+```powershell
+git clone https://github.com/iCog-Labs-Dev/MetaMo-Python.git
+cd MetaMo-Python
+.\setup.ps1
+```
+
+This installs: `numpy`, `pygame`, `matplotlib`, `google-genai`, `python-dotenv`.
+
+After setup, activate the environment:
+```bash
+# Linux/macOS
+source .venv/bin/activate
+
+# Windows
+.\.venv\Scripts\Activate.ps1
+```
 
 ## File Structure
 
