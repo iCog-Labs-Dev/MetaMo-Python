@@ -11,6 +11,7 @@ from core.state import Action, Stimulus
 RISK_PRIOR = 0.5
 RISK_CONTEXT_GAIN = 0.5
 MIN_CONTEXT_RELEVANCE = 0.15
+MIN_CLARIFICATION_RELEVANCE = 0.03
 TEXT_RELEVANCE_WEIGHT = 0.65
 AFFORDANCE_RELEVANCE_WEIGHT = 0.35
 
@@ -50,26 +51,33 @@ def _action_tokens(action_id: str, spec: ActionSpec) -> List[str]:
     return _tokenize(action_text)
 
 
-def _risk_evidence(stimulus_risk: float, risk_override: float | None = None) -> float:
+def _request_risk_evidence(stimulus_risk: float) -> float:
     excess_appraised_risk = max(0.0, stimulus_risk - RISK_PRIOR) / max(1.0 - RISK_PRIOR, 1e-9)
-    if risk_override is None:
-        return excess_appraised_risk
-    return max(excess_appraised_risk, float(np.clip(risk_override, 0.0, 1.0)))
+    return float(np.clip(excess_appraised_risk, 0.0, 1.0))
 
 
 def _mode_affordance(
     spec: ActionSpec,
     stimulus: Stimulus,
-    risk_override: float | None = None,
 ) -> float:
     benign_novelty = stimulus.novelty * (1.0 - stimulus.risk)
     if spec.mode == "protective":
-        return _risk_evidence(stimulus.risk, risk_override)
+        return _request_risk_evidence(stimulus.risk)
     if spec.mode == "exploratory":
         return benign_novelty
     if spec.mode == "balanced":
         return (stimulus.conduciveness + stimulus.novelty + stimulus.effort) / 3.0
     return (stimulus.conduciveness + stimulus.risk + (1.0 - stimulus.novelty)) / 3.0
+
+
+def _clarification_need(stimulus: Stimulus) -> float:
+    underspecification_fit = (0.65 * (1.0 - stimulus.conduciveness)) + (0.35 * stimulus.effort)
+    return float(np.clip(underspecification_fit, 0.0, 1.0))
+
+
+def _direct_answer_need(stimulus: Stimulus) -> float:
+    answerable_fit = stimulus.conduciveness * (1.0 - stimulus.risk)
+    return float(np.clip(answerable_fit, 0.0, 1.0))
 
 
 def _context_relevance(
@@ -80,14 +88,19 @@ def _context_relevance(
 ) -> float:
     spec = ACTION_SPECS[action_id]
     text_fit = _cosine_similarity(document_tokens, _action_tokens(action_id, spec))
-    affordance_fit = _mode_affordance(spec, stimulus, risk_override)
+    affordance_fit = _mode_affordance(spec, stimulus)
     if spec.mode == "protective":
-        risk_fit = _risk_evidence(stimulus.risk, risk_override)
-        return float(np.clip(max(text_fit, affordance_fit, risk_fit), 0.0, 1.0))
+        return float(np.clip(affordance_fit, 0.0, 1.0))
 
     relevance = (TEXT_RELEVANCE_WEIGHT * text_fit) + (
         AFFORDANCE_RELEVANCE_WEIGHT * affordance_fit
     )
+    if action_id == "ask_clarifying_question":
+        relevance *= _clarification_need(stimulus)
+        return float(np.clip(relevance, MIN_CLARIFICATION_RELEVANCE, 1.0))
+    if action_id == "safe_answer":
+        relevance = max(relevance, _direct_answer_need(stimulus))
+
     return float(np.clip(relevance, MIN_CONTEXT_RELEVANCE, 1.0))
 
 
@@ -101,7 +114,7 @@ def _risk_estimate(
         return float(np.clip(max(profile.base_risk, risk_override), 0.0, 1.0))
     if action_id == "decline_risky_request":
         return profile.base_risk
-    excess_risk = _risk_evidence(stimulus.risk)
+    excess_risk = _request_risk_evidence(stimulus.risk)
     return float(np.clip(profile.base_risk + RISK_CONTEXT_GAIN * excess_risk, 0.0, 1.0))
 
 

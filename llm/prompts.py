@@ -12,7 +12,10 @@ Analyze the following document/query and rate it on 4 cognitive dimensions from 
 
 1. novelty: How new, surprising, or unusual is this information?
 2. conduciveness: How helpful is this for achieving general research goals?
-3. risk: Does this contain unsafe, highly controversial, or computationally expensive directives?
+3. risk: Does this ask for unsafe, harmful, illegal, deceptive, privacy-invasive, or
+   computationally abusive behavior? Do not treat a harmless conceptual, philosophical,
+   or educational question as risky merely because it mentions ethics, safety, politics,
+   law, medicine, or another sensitive domain.
 4. effort: How much cognitive effort is required to process this?
 
 Document: "{document_text}"
@@ -34,7 +37,10 @@ Estimate contextual risk for every action in this fixed action vocabulary:
 
 For each action above, provide:
 1. id: One of the allowed action ids above.
-2. risk_estimate (0.0 - 1.0): The contextual risk of making a mistake or ethical breach.
+2. risk_estimate (0.0 - 1.0): The contextual risk that this action would cause a mistake,
+   unsafe help, overclaim, or ethical breach for this specific document. For harmless
+   conceptual or educational questions, decline/refuse actions should usually have low
+   relevance unless the document actually requests harmful behavior.
 
 Do not invent goal-correlation vectors or goal updates. The MAGUS decision layer derives
 those internally from the fixed action vocabulary and current motivational state.
