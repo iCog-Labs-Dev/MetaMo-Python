@@ -1,41 +1,33 @@
 import json
-import numpy as np
-from typing import List
-from core.state import Stimulus, Action
-from llm.action_schema import DEFAULT_ACTION_ID, normalize_action_id
+
+from core.actions import normalize_action_id
+from core.state import Stimulus
+
+
+def _bounded_float(value: object, field_name: str) -> float:
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError) as error:
+        raise ValueError(f"{field_name} must be a float") from error
+    return max(0.0, min(1.0, parsed))
+
 
 def parse_stimulus(llm_json_response: str) -> Stimulus:
-    """Parses LLM JSON into a MetaMo Stimulus object."""
-    try:
-        data = json.loads(llm_json_response)
-        return Stimulus(
-            novelty=float(data.get("novelty", 0.0)),
-            conduciveness=float(data.get("conduciveness", 0.0)),
-            risk=float(data.get("risk", 0.0)),
-            effort=float(data.get("effort", 0.0))
-        )
-    except Exception as e:
-        print(f"Error parsing stimulus: {e}")
-        # Fallback to a neutral stimulus if parsing fails
-        return Stimulus(0.1, 0.1, 0.1, 0.1)
+    """Parse LLM JSON into a validated MetaMo Stimulus object."""
+    data = json.loads(llm_json_response)
+    return Stimulus(
+        novelty=_bounded_float(data["novelty"], "novelty"),
+        conduciveness=_bounded_float(data["conduciveness"], "conduciveness"),
+        risk=_bounded_float(data["risk"], "risk"),
+        effort=_bounded_float(data["effort"], "effort"),
+    )
 
-def parse_actions(llm_json_response: str) -> List[Action]:
-    """Parses LLM JSON into a list of MetaMo Action candidates."""
-    try:
-        data = json.loads(llm_json_response)
-        actions = []
-        for item in data.get("candidates", []):
-            action = Action(
-                id=normalize_action_id(item["id"]),
-                goal_correlations=np.array(item["goal_correlations"], dtype=float),
-                risk_estimate=float(item["risk_estimate"]),
-                delta_g=np.array(item["delta_g"], dtype=float)
-            )
-            actions.append(action)
-        if actions:
-            return actions
-        return [Action(DEFAULT_ACTION_ID, np.zeros(8), 0.0, np.zeros(8))]
-    except Exception as e:
-        print(f"Error parsing actions: {e}")
-        # Fallback to a safe default action
-        return [Action(DEFAULT_ACTION_ID, np.zeros(8), 0.0, np.zeros(8))]
+
+def parse_action_risks(llm_json_response: str) -> dict[str, float]:
+    """Parse LLM JSON into contextual risk estimates keyed by action id."""
+    data = json.loads(llm_json_response)
+    risk_overrides = {}
+    for item in data.get("candidates", []):
+        action_id = normalize_action_id(item["id"])
+        risk_overrides[action_id] = _bounded_float(item["risk_estimate"], "risk_estimate")
+    return risk_overrides

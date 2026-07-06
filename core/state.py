@@ -1,9 +1,8 @@
 from dataclasses import dataclass
-from typing import Dict
 
 import numpy as np
 
-from core.config import (NUM_GOALS, NUM_MODULATORS)
+from core.config import NUM_GOALS, NUM_MODULATORS
 
 
 @dataclass
@@ -43,9 +42,7 @@ class Stimulus:
     """
 
     novelty: float  # Triggers arousal and approach[cite: 56, 161, 188].
-    conduciveness: (
-        float  # Goal conduciveness; triggers valence and resolution[cite: 54, 188].
-    )
+    conduciveness: float  # Goal conduciveness; triggers valence and resolution[cite: 54, 188].
     risk: float  # Triggers threshold and securing (caution)[cite: 54, 62, 188].
     effort: float = 0.0  # Cognitive or physical effort required[cite: 54].
 
@@ -61,11 +58,7 @@ class Action:
     goal_correlations: np.ndarray
     # Estimates potential ethical breach or operational risk[cite: 216, 217].
     risk_estimate: float
-    # Expected modification to the goal vector (Delta G) if selected[cite: 120, 169].
-    delta_g: np.ndarray
 
     def __post_init__(self):
         if self.goal_correlations.shape[0] != NUM_GOALS:
             raise ValueError(f"Correlations vector must have length {NUM_GOALS}")
-        if self.delta_g.shape[0] != NUM_GOALS:
-            raise ValueError(f"Delta G vector must have length {NUM_GOALS}")
