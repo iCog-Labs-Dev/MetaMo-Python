@@ -16,7 +16,7 @@ from core.state import Stimulus, Action
 def is_in_safe_region(state: MotivationalState) -> bool:
     """
     Checks if the state is within the designated safe region R.
-    R = {(G, M) | g_over^Ind >= \theta_{safe} \wedge ||G|| <= G_{max}}[cite: 131, 174].
+    R = {(G, M) | g_over^Ind >= \theta_{safe} \wedge ||G|| <= G_{max}}.
     """
     g_ind = state.G[G_IND]
     g_norm = np.linalg.norm(state.G)
@@ -55,7 +55,7 @@ def distance_to_unsafe_boundary(state: MotivationalState) -> float:
 def is_in_boundary_band(state: MotivationalState) -> bool:
     """
     Checks if the state is in the boundary band B_\eta.
-    B_\eta = {x \in R | dist(x, X \setminus R) <= \eta}[cite: 383].
+    B_\eta = {x \in R | dist(x, X \setminus R) <= \eta}.
     """
     if not is_in_safe_region(state):
         return False # It is already outside the safe region entirely
@@ -87,12 +87,12 @@ def check_contractive_update_law(
 ) -> bool:
     """
     Validates that the pseudo-bimonad update F = D \circ \Psi is contractive near the boundary.
-    Requirement: d(F(x), F(y)) <= c * d(x,y) + \epsilon where c < 1[cite: 132, 176, 384].
-    This ensures that high individuation near the boundary induces contraction toward safety[cite: 133].
+    Requirement: d(F(x), F(y)) <= c * d(x,y) + \epsilon where c < 1.
+    This ensures that high individuation near the boundary induces contraction toward safety.
     """
-    # If neither state is in the boundary band, the contractivity constraint relaxes[cite: 134, 385].
+    # If neither state is in the boundary band, the contractivity constraint relaxes.
     if not (is_in_boundary_band(x) or is_in_boundary_band(y)):
-        return True # Dynamics are allowed to be flexible deep inside R[cite: 385, 403].
+        return True # Dynamics are allowed to be flexible deep inside R.
 
     # Calculate initial distance d(x, y)
     dist_initial = x.distance_to(y)

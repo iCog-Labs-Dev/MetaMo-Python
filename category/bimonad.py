@@ -31,7 +31,7 @@ from dynamics.stability import (
 class MetaMoPseudoBimonad:
     """
     Represents the composite appraisal-then-decision operator F = D \circ \Psi.
-    This forms a pseudo-bimonad on the motivational state space X = G \times M[cite: 28, 309].
+    This forms a pseudo-bimonad on the motivational state space X = G \times M.
     """
     def __init__(self, appraisal: AppraisalComonad, decision: DecisionMonad):
         self.appraisal = appraisal
@@ -41,11 +41,11 @@ class MetaMoPseudoBimonad:
         """
         Compute one appraisal/decision transition before runtime validation.
         """
-        # 1. Appraise (\Psi) - Update modulators based on stimulus[cite: 314].
+        # 1. Appraise (\Psi) - Update modulators based on stimulus.
         appraised_state = self.appraisal.appraise(state, stimulus)
         appraised_state = raise_boundary_caution(appraised_state)
         
-        # 2. Decide (\mathbb{D}) - Score candidates and update goals[cite: 315].
+        # 2. Decide (\mathbb{D}) - Score candidates and update goals.
         chosen_action, proposed_delta_g = self.decision.decide(appraised_state, candidates)
 
         damped_delta_g = apply_homeostatic_damping(appraised_state, proposed_delta_g)
@@ -158,7 +158,7 @@ class MetaMoPseudoBimonad:
     ) -> Tuple[Action, MotivationalState]:
         """
         Executes one full cycle of F = D \circ \Psi.
-        This governs the motivational coalgebra \alpha: X \to F(X)[cite: 310, 316].
+        This governs the motivational coalgebra \alpha: X \to F(X).
         """
         chosen_action, next_state = self._compute_transition(state, stimulus, candidates)
         reference_state = self._local_reference_state(state, next_state)
@@ -172,8 +172,8 @@ class MetaMoPseudoBimonad:
 
     def check_lax_distributive_law(self, state: MotivationalState, stimulus: Stimulus, candidates: List[Action]) -> bool:
         """
-        Validates the First Principle: Modular Appraisal-Decision Interface[cite: 287, 322].
-        Checks that \lambda_X : \Psi(\mathbb{D}(X)) \Rightarrow \mathbb{D}(\Psi(X)) commutes up to a controlled error[cite: 308].
+        Validates the First Principle: Modular Appraisal-Decision Interface.
+        Checks that \lambda_X : \Psi(\mathbb{D}(X)) \Rightarrow \mathbb{D}(\Psi(X)) commutes up to a controlled error.
         """
         # Path 1: Appraise then Decide -> stabilized D(Psi(X))
         decision_state_1 = self._decision_context(state, stimulus)
@@ -185,10 +185,10 @@ class MetaMoPseudoBimonad:
         decided_state_2 = self._state_from_delta(state, delta_g_2)
         final_state_2 = self._decision_context(decided_state_2, stimulus)
         
-        # Calculate the controlled distortion distance[cite: 332, 344].
+        # Calculate the controlled distortion distance.
         distortion = final_state_1.distance_to(final_state_2)
         
-        # The law holds if the distortion is bounded by the acceptable delta[cite: 344].
+        # The law holds if the distortion is bounded by the acceptable delta.
         return distortion <= LAX_DISTRIBUTIVE_DELTA
     
     def parallel_merge(self, state_a: MotivationalState, state_b: MotivationalState, coherence_correction: float = 0.05) -> MotivationalState:

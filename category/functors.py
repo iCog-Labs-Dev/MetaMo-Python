@@ -7,8 +7,8 @@ from core.state import MotivationalState, Stimulus, Action
 class AppraisalComonad(ABC):
     """
     Abstract base class for the Appraisal Comonad (\Psi).
-    In MetaMo, the comonad handles stimulus appraisal, updating affect and modulators[cite: 28, 307].
-    It maps the state and a stimulus to a new state: \Psi(X \times S) -> X[cite: 314].
+    In MetaMo, the comonad handles stimulus appraisal, updating affect and modulators.
+    It maps the state and a stimulus to a new state: \Psi(X \times S) -> X.
     """
 
     @abstractmethod
@@ -23,8 +23,8 @@ class AppraisalComonad(ABC):
     def appraise(self, state: MotivationalState, stimulus: Stimulus) -> MotivationalState:
         """
         The endofunctor application.
-        Updates the modulators M based on the stimulus without altering the high-level goals G[cite: 54].
-        Yields \Psi((G, M), s) = (G, M')[cite: 55, 160].
+        Updates the modulators M based on the stimulus without altering the high-level goals G.
+        Yields \Psi((G, M), s) = (G, M').
         """
         pass
 
@@ -32,7 +32,7 @@ class AppraisalComonad(ABC):
 class DecisionMonad(ABC):
     """
     Abstract base class for the Decision Monad (\mathbb{D}).
-    In MetaMo, the monad handles goal selection and action scoring[cite: 28, 307].
+    In MetaMo, the monad handles goal selection and action scoring.
     It maps the state to a new goal configuration: \mathbb{D}(X).
     """
 
@@ -48,8 +48,8 @@ class DecisionMonad(ABC):
     def decide(self, state: MotivationalState, candidates: List[Action]) -> Tuple[Action, np.ndarray]:
         """
         The endofunctor application.
-        Scores each candidate action under the updated goals and modulators[cite: 315].
-        Returns the chosen action and the proposed goal update \Delta G[cite: 120, 169].
+        Scores each candidate action under the updated goals and modulators.
+        Returns the chosen action and the proposed goal update \Delta G.
         The composite operator F = D \circ \Psi is responsible for turning this proposal into
         the finalized next motivational state.
         """

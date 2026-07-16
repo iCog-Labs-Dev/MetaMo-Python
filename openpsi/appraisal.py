@@ -19,8 +19,8 @@ def sigmoid(x: float) -> float:
 
 class OpenPsiAppraisal(AppraisalComonad):
     """
-    Implements the OpenPsi appraisal layer as the Comonad (\Psi)[cite: 49].
-    Updates the six affective modulators based on external/internal stimuli[cite: 51].
+    Implements the OpenPsi appraisal layer as the Comonad (\Psi).
+    Updates the six affective modulators based on external/internal stimuli.
     """
 
     def extract(self, state: MotivationalState) -> MotivationalState:
@@ -31,9 +31,9 @@ class OpenPsiAppraisal(AppraisalComonad):
 
     def appraise(self, state: MotivationalState, stimulus: Stimulus) -> MotivationalState:
         """
-        Applies \Psi((G, M), s) = (G, M')[cite: 55].
+        Applies \Psi((G, M), s) = (G, M').
         Updates the modulators M based on stimulus novelty, conduciveness, and risk,
-        while applying MAGUS overgoal scaling[cite: 116, 117].
+        while applying MAGUS overgoal scaling.
         """
         # Create a copy to maintain functional purity
         M_prime = state.M.copy()

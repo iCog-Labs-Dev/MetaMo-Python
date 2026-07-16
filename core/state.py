@@ -9,11 +9,11 @@ from core.config import (NUM_GOALS, NUM_MODULATORS)
 @dataclass
 class MotivationalState:
     """
-    Represents the motivational state object X = G x M in the MetaMo category[cite: 28, 103, 305].
+    Represents the motivational state object X = G x M in the MetaMo category.
     """
 
-    G: np.ndarray  # Vector of goal intensities/weights[cite: 108].
-    M: np.ndarray  # Vector of continuous OpenPsi modulators[cite: 115].
+    G: np.ndarray  # Vector of goal intensities/weights.
+    M: np.ndarray  # Vector of continuous OpenPsi modulators.
 
     def __post_init__(self):
         """Ensure vectors are initialized with the correct dimensions."""
@@ -29,7 +29,7 @@ class MotivationalState:
     def distance_to(self, other: "MotivationalState") -> float:
         """
         Calculates the distance d(x, y) between two states.
-        Essential for checking the contractive update law: d(F(x), F(y)) <= c*d(x,y) + epsilon[cite: 30, 132].
+        Essential for checking the contractive update law: d(F(x), F(y)) <= c*d(x,y) + epsilon.
         """
         dist_G = np.linalg.norm(self.G - other.G)
         dist_M = np.linalg.norm(self.M - other.M)
@@ -39,29 +39,29 @@ class MotivationalState:
 @dataclass
 class Stimulus:
     """
-    Represents an external or internal event (s) passed to the Appraisal Comonad (Psi)[cite: 54, 314].
+    Represents an external or internal event (s) passed to the Appraisal Comonad (Psi).
     """
 
-    novelty: float  # Triggers arousal and approach[cite: 56, 161, 188].
+    novelty: float  # Triggers arousal and approach.
     conduciveness: (
-        float  # Goal conduciveness; triggers valence and resolution[cite: 54, 188].
+        float  # Goal conduciveness; triggers valence and resolution.
     )
-    risk: float  # Triggers threshold and securing (caution)[cite: 54, 62, 188].
-    effort: float = 0.0  # Cognitive or physical effort required[cite: 54].
+    risk: float  # Triggers threshold and securing (caution).
+    effort: float = 0.0  # Cognitive or physical effort required.
 
 
 @dataclass
 class Action:
     """
-    Represents a candidate action or inference rule evaluated by the Decision Monad (D)[cite: 166, 186].
+    Represents a candidate action or inference rule evaluated by the Decision Monad (D).
     """
 
     id: str
-    # Measures alignment (corr or rel) with each primary goal[cite: 168, 192].
+    # Measures alignment (corr or rel) with each primary goal.
     goal_correlations: np.ndarray
-    # Estimates potential ethical breach or operational risk[cite: 216, 217].
+    # Estimates potential ethical breach or operational risk.
     risk_estimate: float
-    # Expected modification to the goal vector (Delta G) if selected[cite: 120, 169].
+    # Expected modification to the goal vector (Delta G) if selected.
     delta_g: np.ndarray
 
     def __post_init__(self):
