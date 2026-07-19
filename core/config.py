@@ -24,4 +24,5 @@ ETA_BOUNDARY = (
 ALPHA_0 = 0.1  # Base rate slowed down by individuation.
 BETA_0 = 0.15  # Base rate sped up by transcendence.
 
-LAX_DISTRIBUTIVE_DELTA = 1e-3
+LAX_DISTRIBUTIVE_DELTA = 1e-2
+PARALLEL_COMPOSITION_DELTA = 1e-2
