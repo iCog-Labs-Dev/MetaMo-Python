@@ -66,7 +66,7 @@ def is_in_boundary_band(state: MotivationalState) -> bool:
 def raise_boundary_caution(state: MotivationalState) -> MotivationalState:
     """
     Raises caution-related modulators as the state approaches or crosses the safety boundary.
-    This mirrors the paper's boundary-sensitive appraisal before decision.
+    This mirrors boundary-sensitive appraisal before decision.
     """
     pressure = boundary_pressure(state)
     if pressure == 0.0:
@@ -86,8 +86,8 @@ def check_contractive_update_law(
     candidates: List[Action]
 ) -> bool:
     """
-    Validates that the pseudo-bimonad update F = D \circ \Psi is contractive near the boundary.
-    Requirement: d(F(x), F(y)) <= c * d(x,y) + \epsilon where c < 1.
+    Validates that the pseudo-bimonad update F = D o ψ is contractive near the boundary.
+    Requirement: d(F(x), F(y)) <= c * d(x,y) + epsilon where c < 1.
     This ensures that high individuation near the boundary induces contraction toward safety.
     """
     # If neither state is in the boundary band, the contractivity constraint relaxes.
@@ -126,6 +126,7 @@ def project_to_safe_region(state: MotivationalState) -> MotivationalState:
     Projects a state back into the designated safe region by restoring the individuation floor
     and shrinking the goal vector if it exceeds the allowed norm.
     """
+    initial_pressure = boundary_pressure(state)
     next_state = state.copy()
     next_state.G[G_IND] = max(next_state.G[G_IND], THETA_SAFE)
 
@@ -136,6 +137,11 @@ def project_to_safe_region(state: MotivationalState) -> MotivationalState:
     if other_norm > max_other_norm and other_norm > 0.0:
         next_state.G[other_idx] = other_goals * (max_other_norm / other_norm)
 
-    next_state.M[M_SECURING] = min(1.0, next_state.M[M_SECURING] + 0.1)
-    next_state.M[M_THRESHOLD] = min(1.0, next_state.M[M_THRESHOLD] + 0.1)
+    final_pressure = boundary_pressure(next_state)
+    caution_pressure = max(initial_pressure, final_pressure)
+    if caution_pressure > 0.0:
+        caution_boost = 0.1 * caution_pressure
+        next_state.M[M_SECURING] = min(1.0, next_state.M[M_SECURING] + caution_boost)
+        next_state.M[M_THRESHOLD] = min(1.0, next_state.M[M_THRESHOLD] + caution_boost)
+
     return next_state
