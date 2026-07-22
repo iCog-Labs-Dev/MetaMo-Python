@@ -24,6 +24,13 @@ from core.config import (
 MIN_BLEND_ALPHA = 1e-6
 
 
+def _goal_value(state: MotivationalState, name: str, default: float = 0.0) -> float:
+    try:
+        return state.goal(name)
+    except KeyError:
+        return default
+
+
 @dataclass(frozen=True)
 class SelfModel:
     """
@@ -71,15 +78,20 @@ def estimate_self_model(state: MotivationalState) -> SelfModel:
     The vector keeps the full motivational state plus summary commitments:
     safety, growth, service, ethics, sociality, caution, exploration, and affect.
     """
-    safety_commitment = (state.G[G_IND] + state.G[G_ETHIC]) / 2.0
-    growth_commitment = (state.G[G_TRANS] + state.G[G_CURIO] + state.G[G_NOVEL]) / 3.0
-    service_commitment = state.G[G_HELP]
-    self_commitment = state.G[G_SELF]
-    social_commitment = state.G[G_SOC]
-    caution_posture = (state.M[M_THRESHOLD] + state.M[M_SECURING]) / 2.0
-    exploration_posture = (state.M[M_AROUSAL] + state.M[M_APPROACH]) / 2.0
-    clarity_posture = state.M[M_RESOLUTION]
-    affect_posture = state.M[M_VALENCE]
+    g_ind = _goal_value(state, "individuation", state.G[G_IND])
+    g_trans = _goal_value(state, "transcendence", state.G[G_TRANS])
+    ethics = _goal_value(state, "ethics", g_ind)
+    curiosity = _goal_value(state, "curiosity", g_trans)
+    novelty = _goal_value(state, "novelty", g_trans)
+    safety_commitment = (g_ind + ethics) / 2.0
+    growth_commitment = (g_trans + curiosity + novelty) / 3.0
+    service_commitment = _goal_value(state, "help")
+    self_commitment = _goal_value(state, "self_improvement")
+    social_commitment = _goal_value(state, "sociality")
+    caution_posture = (state.modulator("threshold") + state.modulator("securing")) / 2.0
+    exploration_posture = (state.modulator("arousal") + state.modulator("approach")) / 2.0
+    clarity_posture = state.modulator("resolution")
+    affect_posture = state.modulator("valence")
 
     return SelfModel(
         vector=np.concatenate([
@@ -133,6 +145,7 @@ def measure_blend(
         next_state = MotivationalState(
             G=((1.0 - alpha) * current_state.G) + (alpha * target_state.G),
             M=((1.0 - alpha) * current_state.M) + (alpha * target_state.M),
+            schema=current_state.schema,
         )
         drift = measure_self_model_drift(
             current_state,

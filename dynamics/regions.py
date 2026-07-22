@@ -47,6 +47,7 @@ class IdealRegion:
             projected = MotivationalState(
                 G=np.clip(self.center.G + delta_G * scale, 0.0, 1.0),
                 M=np.clip(self.center.M + delta_M * scale, 0.0, 1.0),
+                schema=self.center.schema,
             )
 
         if self.require_safe:
@@ -83,6 +84,7 @@ class ReachableRegion:
             path.append(MotivationalState(
                 G=((1.0 - alpha) * start.G) + (alpha * projected_target.G),
                 M=((1.0 - alpha) * start.M) + (alpha * projected_target.M),
+                schema=start.schema,
             ))
         return path
 
