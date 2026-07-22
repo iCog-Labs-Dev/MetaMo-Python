@@ -74,6 +74,7 @@ class MetaMoPseudoBimonad:
         next_state = MotivationalState(
             G=np.clip(appraised_state.G + damped_delta_g, 0.0, 1.0),
             M=appraised_state.M.copy(),
+            schema=appraised_state.schema,
         )
         projected_state = project_to_safe_region(next_state)
 
@@ -142,6 +143,7 @@ class MetaMoPseudoBimonad:
         next_state = MotivationalState(
             G=np.clip(decision_state.G + damped_delta_g, 0.0, 1.0),
             M=decision_state.M.copy(),
+            schema=decision_state.schema,
         )
         return project_to_safe_region(next_state)
 
@@ -165,6 +167,7 @@ class MetaMoPseudoBimonad:
         return MotivationalState(
             G=np.clip(state.G + probe_G, 0.0, 1.0),
             M=np.clip(state.M + probe_M, 0.0, 1.0),
+            schema=state.schema,
         )
 
     def consensus_action(
@@ -224,6 +227,7 @@ class MetaMoPseudoBimonad:
         fallback_state = MotivationalState(
             G=((current_state.G * 0.5) + (next_state.G * 0.5)),
             M=((current_state.M * 0.5) + (next_state.M * 0.5)),
+            schema=current_state.schema,
         )
         return project_to_safe_region(fallback_state)
 
@@ -396,6 +400,9 @@ class MetaMoPseudoBimonad:
         Witnesses the lax-monoidal structure.
         Merges two parallel motivational subsystems with dimension-wise coherence corrections.
         """
+        if state_a.schema != state_b.schema:
+            raise ValueError("Cannot merge states with different motivation schemas")
+
         weight_a = state_a.G[G_IND]
         weight_b = state_b.G[G_IND]
         total_weight = weight_a + weight_b + 1e-9
@@ -450,4 +457,4 @@ class MetaMoPseudoBimonad:
         merged_G = base_G + goal_correction * (consensus_G - base_G)
         merged_M = base_M + mod_correction * (consensus_M - base_M)
 
-        return MotivationalState(G=merged_G, M=merged_M)
+        return MotivationalState(G=merged_G, M=merged_M, schema=state_a.schema)

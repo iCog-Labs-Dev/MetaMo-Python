@@ -4,6 +4,7 @@ from typing import Callable, List, Optional, Tuple
 import numpy as np
 
 from category.simulation import ReciprocalSimulationResult
+from core.schema import MotivationSchema
 from core.state import MotivationalState, Stimulus, Action
 
 TransitionFunction = Callable[
@@ -103,7 +104,12 @@ class TranslationFunctor:
     Implements Principle 2: Reciprocal Motivational State Simulation.
     Maps Agent A's state into Agent B's state space for seamless hand-off.
     """
-    def __init__(self, goal_translation: np.ndarray, modulator_translation: np.ndarray):
+    def __init__(
+        self,
+        goal_translation: np.ndarray,
+        modulator_translation: np.ndarray,
+        target_schema: MotivationSchema | None = None,
+    ):
         """
         Separate linear maps for translating goal-space and modulator-space coordinates.
         """
@@ -117,6 +123,7 @@ class TranslationFunctor:
 
         self.goal_translation = goal_translation
         self.modulator_translation = modulator_translation
+        self.target_schema = target_schema
 
     @classmethod
     def fit_from_state_pairs(
@@ -144,7 +151,15 @@ class TranslationFunctor:
             regularization=regularization,
         )
 
-        return cls(goal_translation=goal_translation, modulator_translation=modulator_translation)
+        target_schema = target_states[0].schema
+        if any(state.schema != target_schema for state in target_states):
+            raise ValueError("target states must share one motivation schema")
+
+        return cls(
+            goal_translation=goal_translation,
+            modulator_translation=modulator_translation,
+            target_schema=target_schema,
+        )
         
     def simulate_peer(self, state_a: MotivationalState) -> MotivationalState:
         """
@@ -155,12 +170,19 @@ class TranslationFunctor:
         if self.modulator_translation.shape[1] != state_a.M.shape[0]:
             raise ValueError("modulator translation input dimensions do not match the state modulator vector")
 
+        target_schema = self.target_schema or state_a.schema
+        if self.goal_translation.shape[0] != target_schema.num_goals:
+            raise ValueError("goal translation output dimensions do not match the target schema")
+        if self.modulator_translation.shape[0] != target_schema.num_modulators:
+            raise ValueError("modulator translation output dimensions do not match the target schema")
+
         simulated_G = np.dot(self.goal_translation, state_a.G)
         simulated_M = np.dot(self.modulator_translation, state_a.M)
         
         return MotivationalState(
             G=np.clip(simulated_G, 0.0, 1.0),
-            M=np.clip(simulated_M, 0.0, 1.0)
+            M=np.clip(simulated_M, 0.0, 1.0),
+            schema=target_schema,
         )
 
     def reciprocal_round_trip_error(
