@@ -1,10 +1,23 @@
-NUM_GOALS = 8
-G_IND, G_TRANS = 0, 1
-G_HELP, G_CURIO, G_NOVEL, G_SELF, G_ETHIC, G_SOC = 2, 3, 4, 5, 6, 7
+from core.schema import DEFAULT_MOTIVATION_SCHEMA
 
-NUM_MODULATORS = 6
-M_VALENCE, M_AROUSAL, M_APPROACH = 0, 1, 2
-M_RESOLUTION, M_THRESHOLD, M_SECURING = 3, 4, 5
+
+NUM_GOALS = DEFAULT_MOTIVATION_SCHEMA.num_goals
+G_IND = DEFAULT_MOTIVATION_SCHEMA.goal_index("individuation")
+G_TRANS = DEFAULT_MOTIVATION_SCHEMA.goal_index("transcendence")
+G_HELP = DEFAULT_MOTIVATION_SCHEMA.goal_index("help")
+G_CURIO = DEFAULT_MOTIVATION_SCHEMA.goal_index("curiosity")
+G_NOVEL = DEFAULT_MOTIVATION_SCHEMA.goal_index("novelty")
+G_SELF = DEFAULT_MOTIVATION_SCHEMA.goal_index("self_improvement")
+G_ETHIC = DEFAULT_MOTIVATION_SCHEMA.goal_index("ethics")
+G_SOC = DEFAULT_MOTIVATION_SCHEMA.goal_index("sociality")
+
+NUM_MODULATORS = DEFAULT_MOTIVATION_SCHEMA.num_modulators
+M_VALENCE = DEFAULT_MOTIVATION_SCHEMA.modulator_index("valence")
+M_AROUSAL = DEFAULT_MOTIVATION_SCHEMA.modulator_index("arousal")
+M_APPROACH = DEFAULT_MOTIVATION_SCHEMA.modulator_index("approach")
+M_RESOLUTION = DEFAULT_MOTIVATION_SCHEMA.modulator_index("resolution")
+M_THRESHOLD = DEFAULT_MOTIVATION_SCHEMA.modulator_index("threshold")
+M_SECURING = DEFAULT_MOTIVATION_SCHEMA.modulator_index("securing")
 
 LAMBDA_IND = 0.5  # Weight of the individuation penalty (suppresses risk).
 LAMBDA_TRANS = 0.5  # Weight of the transcendence reward (encourages growth).
