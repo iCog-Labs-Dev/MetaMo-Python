@@ -74,21 +74,6 @@ class MotivationalState:
     def set_modulator(self, name: str, value: float) -> None:
         self.M[self.modulator_index(name)] = value
 
-
-@dataclass
-class Stimulus:
-    """
-    Represents an external or internal event (s) passed to the Appraisal Comonad (Psi).
-    """
-
-    novelty: float  # Triggers arousal and approach.
-    conduciveness: (
-        float  # Goal conduciveness; triggers valence and resolution.
-    )
-    risk: float  # Triggers threshold and securing (caution).
-    effort: float = 0.0  # Cognitive or physical effort required.
-
-
 @dataclass
 class Action:
     """

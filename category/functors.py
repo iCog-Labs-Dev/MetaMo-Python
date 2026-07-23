@@ -1,18 +1,18 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Callable, List, Optional, Tuple
+from typing import Any, Callable, List, Optional, Tuple
 import numpy as np
 
 from category.simulation import ReciprocalSimulationResult
 from core.schema import MotivationSchema
-from core.state import MotivationalState, Stimulus, Action
+from core.state import MotivationalState, Action
 
 TransitionFunction = Callable[
-    [MotivationalState, Stimulus, List[Action]],
+    [MotivationalState, Any, List[Action]],
     Tuple[Action, MotivationalState],
 ]
 StateTransform = Callable[[MotivationalState], MotivationalState]
-StimulusTransform = Callable[[Stimulus], Stimulus]
+ApplicationStimulusTransform = Callable[[Any], Any]
 CandidateTransform = Callable[[List[Action]], List[Action]]
 
 
@@ -51,8 +51,8 @@ def _fit_translation_matrix(
 class AppraisalComonad(ABC):
     """
     Abstract base class for the Appraisal Comonad (ψ).
-    In MetaMo, the comonad handles stimulus appraisal, updating affect and modulators.
-    It maps the state and a stimulus to a new state: ψ(X \times S) -> X.
+    In MetaMo, the comonad handles application-stimulus appraisal, updating affect and modulators.
+    It maps the state and an application stimulus to a new state.
     """
 
     @abstractmethod
@@ -64,10 +64,10 @@ class AppraisalComonad(ABC):
         pass
 
     @abstractmethod
-    def appraise(self, state: MotivationalState, stimulus: Stimulus) -> MotivationalState:
+    def appraise(self, state: MotivationalState, stimulus: Any) -> MotivationalState:
         """
         The endofunctor application.
-        Updates the modulators M based on the stimulus without altering the high-level goals G.
+        Updates the modulators M based on application stimulus without altering the high-level goals G.
         Yields ψ((G, M), s) = (G, M').
         """
         pass
@@ -203,11 +203,11 @@ class TranslationFunctor:
         source_update: TransitionFunction,
         target_update: TransitionFunction,
         source_state: MotivationalState,
-        stimulus: Stimulus,
+        stimulus: Any,
         candidates: List[Action],
         tolerance: float = 0.05,
         natural_transform: Optional[StateTransform] = None,
-        stimulus_translation: Optional[StimulusTransform] = None,
+        stimulus_translation: Optional[ApplicationStimulusTransform] = None,
         candidate_translation: Optional[CandidateTransform] = None,
     ) -> ReciprocalSimulationResult:
         """
@@ -250,14 +250,14 @@ class AgentFrameAdapter:
     """
 
     state_translation: TranslationFunctor
-    stimulus_translation: Optional[StimulusTransform] = None
+    stimulus_translation: Optional[ApplicationStimulusTransform] = None
     candidate_translation: Optional[CandidateTransform] = None
     natural_transform: Optional[StateTransform] = None
 
     def translate_state(self, state: MotivationalState) -> MotivationalState:
         return self.state_translation.simulate_peer(state)
 
-    def translate_stimulus(self, stimulus: Stimulus) -> Stimulus:
+    def translate_stimulus(self, stimulus: Any) -> Any:
         if self.stimulus_translation is None:
             return stimulus
         return self.stimulus_translation(stimulus)
@@ -272,7 +272,7 @@ class AgentFrameAdapter:
         source_update: TransitionFunction,
         target_update: TransitionFunction,
         source_state: MotivationalState,
-        stimulus: Stimulus,
+        stimulus: Any,
         candidates: List[Action],
         tolerance: float = 0.05,
     ) -> ReciprocalSimulationResult:

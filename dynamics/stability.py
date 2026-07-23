@@ -1,5 +1,5 @@
 import numpy as np
-from typing import List
+from typing import Any, List
 from core.state import MotivationalState
 from core.config import (
     G_IND, 
@@ -11,7 +11,7 @@ from core.config import (
     M_SECURING,
     M_THRESHOLD
 )
-from core.state import Stimulus, Action
+from core.state import Action
 
 def is_in_safe_region(state: MotivationalState) -> bool:
     """
@@ -82,7 +82,7 @@ def check_contractive_update_law(
     bimonad,
     x: MotivationalState, 
     y: MotivationalState, 
-    stimulus: Stimulus,
+    stimulus: Any,
     candidates: List[Action]
 ) -> bool:
     """

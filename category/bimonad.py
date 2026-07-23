@@ -1,7 +1,7 @@
-from typing import List, Tuple
+from typing import Any, List, Tuple
 import numpy as np
 from dataclasses import dataclass
-from core.state import MotivationalState, Stimulus, Action
+from core.state import MotivationalState, Action
 from core.config import (
     G_ETHIC,
     LAX_DISTRIBUTIVE_DELTA,
@@ -59,7 +59,7 @@ class MetaMoPseudoBimonad:
         self.decision = decision
         self.diagnostics_history = MetaMoDiagnosticsHistory()
 
-    def _compute_transition_details(self, state: MotivationalState, stimulus: Stimulus, candidates: List[Action]) -> TransitionComputation:
+    def _compute_transition_details(self, state: MotivationalState, stimulus: Any, candidates: List[Action]) -> TransitionComputation:
         """
         Compute one appraisal/decision transition before runtime validation.
         """
@@ -84,7 +84,7 @@ class MetaMoPseudoBimonad:
             projection_delta=next_state.distance_to(projected_state),
         )
 
-    def _compute_transition(self, state: MotivationalState, stimulus: Stimulus, candidates: List[Action]) -> Tuple[Action, MotivationalState]:
+    def _compute_transition(self, state: MotivationalState, stimulus: Any, candidates: List[Action]) -> Tuple[Action, MotivationalState]:
         """
         Compute one appraisal/decision transition before runtime validation.
         """
@@ -94,7 +94,7 @@ class MetaMoPseudoBimonad:
     def _target_transition_details(
         self,
         state: MotivationalState,
-        stimulus: Stimulus,
+        stimulus: Any,
         candidates: List[Action],
     ) -> TransitionComputation:
         computation = self._compute_transition_details(state, stimulus, candidates)
@@ -126,7 +126,7 @@ class MetaMoPseudoBimonad:
     def target_transition(
         self,
         state: MotivationalState,
-        stimulus: Stimulus,
+        stimulus: Any,
         candidates: List[Action],
     ) -> Tuple[Action, MotivationalState]:
         """
@@ -147,7 +147,7 @@ class MetaMoPseudoBimonad:
         )
         return project_to_safe_region(next_state)
 
-    def _decision_context(self, state: MotivationalState, stimulus: Stimulus) -> MotivationalState:
+    def _decision_context(self, state: MotivationalState, stimulus: Any) -> MotivationalState:
         """
         Build the post-appraisal state that the decision monad should score.
         """
@@ -174,7 +174,7 @@ class MetaMoPseudoBimonad:
         self,
         state_a: MotivationalState,
         state_b: MotivationalState,
-        stimulus: Stimulus,
+        stimulus: Any,
         candidates: List[Action],
     ) -> Action:
         """
@@ -206,7 +206,7 @@ class MetaMoPseudoBimonad:
         self,
         state_a: MotivationalState,
         state_b: MotivationalState,
-        stimulus: Stimulus,
+        stimulus: Any,
         candidates: List[Action],
     ) -> Tuple[Action, MotivationalState]:
         """
@@ -215,10 +215,20 @@ class MetaMoPseudoBimonad:
         action = self.consensus_action(state_a, state_b, stimulus, candidates)
         context_a = self._decision_context(state_a, stimulus)
         context_b = self._decision_context(state_b, stimulus)
-        target_a = self._state_from_delta(context_a, action.delta_g)
-        target_b = self._state_from_delta(context_b, action.delta_g)
+        delta_a = self._proposed_delta_for_action(context_a, action)
+        delta_b = self._proposed_delta_for_action(context_b, action)
+        target_a = self._state_from_delta(context_a, delta_a)
+        target_b = self._state_from_delta(context_b, delta_b)
         merged_target = self.parallel_merge(target_a, target_b)
         return action, merged_target
+
+    def _proposed_delta_for_action(self, state: MotivationalState, action: Action,) -> np.ndarray:
+        """
+        Use profile-derived MAGUS Delta G when the decision layer exposes it.
+        """
+        if hasattr(self.decision, "propose_delta_g"):
+            return self.decision.propose_delta_g(state, action)
+        return action.delta_g.copy()
 
     def _apply_conservative_fallback(self, current_state: MotivationalState, next_state: MotivationalState) -> MotivationalState:
         """
@@ -234,7 +244,7 @@ class MetaMoPseudoBimonad:
     def step(
         self,
         state: MotivationalState,
-        stimulus: Stimulus,
+        stimulus: Any,
         candidates: List[Action],
         embody: bool = True,
         record_diagnostics: bool = True,
@@ -257,7 +267,7 @@ class MetaMoPseudoBimonad:
     def step_with_diagnostics(
         self,
         state: MotivationalState,
-        stimulus: Stimulus,
+        stimulus: Any,
         candidates: List[Action],
         embody: bool = True,
         record_diagnostics: bool = True,
@@ -319,7 +329,7 @@ class MetaMoPseudoBimonad:
     def measure_lax_distributive_law(
         self,
         state: MotivationalState,
-        stimulus: Stimulus,
+        stimulus: Any,
         candidates: List[Action],
         tolerance: float = LAX_DISTRIBUTIVE_DELTA,
     ) -> StateLawCheckResult:
@@ -348,7 +358,7 @@ class MetaMoPseudoBimonad:
             holds=distortion <= tolerance,
         )
 
-    def check_lax_distributive_law(self, state: MotivationalState, stimulus: Stimulus, candidates: List[Action]) -> bool:
+    def check_lax_distributive_law(self, state: MotivationalState, stimulus: Any, candidates: List[Action]) -> bool:
         """
         Validates the First Principle: Modular Appraisal-Decision Interface.
         """
@@ -358,7 +368,7 @@ class MetaMoPseudoBimonad:
         self,
         state_a: MotivationalState,
         state_b: MotivationalState,
-        stimulus: Stimulus,
+        stimulus: Any,
         candidates: List[Action],
         tolerance: float = PARALLEL_COMPOSITION_DELTA,
     ) -> StateLawCheckResult:
@@ -386,7 +396,7 @@ class MetaMoPseudoBimonad:
         self,
         state_a: MotivationalState,
         state_b: MotivationalState,
-        stimulus: Stimulus,
+        stimulus: Any,
         candidates: List[Action],
     ) -> bool:
         """
