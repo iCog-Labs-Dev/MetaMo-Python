@@ -5,6 +5,7 @@ import numpy as np
 
 from core.schema import MotivationSchema
 from core.state import Action, MotivationalState
+from magus.correlation import GoalCompatibilityMatrix
 from magus.goal_change import DefaultGoalChangeCalculator
 
 
@@ -37,6 +38,7 @@ class DecisionProfile:
     balanced_goal_names: tuple[str, ...] = ()
     anti_goal_penalty_weights: Mapping[str, float] = field(default_factory=dict)
     overgoal_target_features: Mapping[str, str] = field(default_factory=dict)
+    compatibility_matrix: GoalCompatibilityMatrix | None = None
     overgoal_delta_scale: float = 0.02
     delta_scale: float = 0.05
     candidate_delta_weight: float = 0.0
@@ -92,7 +94,10 @@ class DecisionProfile:
         """
         g_ind = state.goal(self.schema.goals.individuation_name)
         g_trans = state.goal(self.schema.goals.transcendence_name)
-        return self.overgoal_support(goal_idx, g_ind, g_trans)
+        mic_factor = 1.0
+        if self.compatibility_matrix is not None:
+            mic_factor = self.compatibility_matrix.factor_for(goal_idx, state)
+        return self.overgoal_support(goal_idx, g_ind, g_trans) * mic_factor
 
     def f(self, goal_idx: int, state: MotivationalState, candidate: Action) -> float:
         """
