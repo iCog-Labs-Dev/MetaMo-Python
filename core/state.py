@@ -1,4 +1,5 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from typing import Any, Mapping
 
 import numpy as np
 
@@ -83,11 +84,10 @@ class Action:
     id: str
     # Measures alignment (corr or rel) with each primary goal.
     goal_correlations: np.ndarray
-    # Estimates potential ethical breach or operational risk.
-    risk_estimate: float
     # Expected modification to the goal vector (Delta G) if selected.
     delta_g: np.ndarray
     schema: MotivationSchema = DEFAULT_MOTIVATION_SCHEMA
+    metadata: Mapping[str, Any] = field(default_factory=dict)
 
     def __post_init__(self):
         self.goal_correlations = np.asarray(self.goal_correlations, dtype=float)
