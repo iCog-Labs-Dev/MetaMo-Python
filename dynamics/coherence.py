@@ -3,32 +3,31 @@ from dataclasses import dataclass
 import numpy as np
 from core.state import MotivationalState
 from core.config import (
-    G_CURIO,
-    G_ETHIC,
-    G_HELP,
-    G_IND,
-    G_NOVEL,
-    G_SELF,
-    G_SOC,
-    G_TRANS,
     ALPHA_0,
     BETA_0,
-    M_APPROACH,
-    M_AROUSAL,
-    M_RESOLUTION,
-    M_SECURING,
-    M_THRESHOLD,
-    M_VALENCE,
 )
 
 MIN_BLEND_ALPHA = 1e-6
 
 
-def _goal_value(state: MotivationalState, name: str, default: float = 0.0) -> float:
+def _modulator_value(state: MotivationalState, name: str, default: float = 0.0) -> float:
     try:
-        return state.goal(name)
+        return state.modulator(name)
     except KeyError:
         return default
+
+
+def _summary(values: np.ndarray) -> np.ndarray:
+    """
+    Return a fixed-size summary for a possibly empty coordinate block.
+    """
+    if values.size == 0:
+        return np.zeros(3)
+    return np.array([
+        float(np.mean(values)),
+        float(np.max(values)),
+        float(np.linalg.norm(values)),
+    ])
 
 
 @dataclass(frozen=True)
@@ -73,36 +72,37 @@ class BlendResult:
 
 def estimate_self_model(state: MotivationalState) -> SelfModel:
     """
-    Builds an explicit lightweight self-model H(x).
-
-    The vector keeps the full motivational state plus summary commitments:
-    safety, growth, service, ethics, sociality, caution, exploration, and affect.
+    Builds an explicit lightweight self-model H(x) from schema structure.
     """
-    g_ind = _goal_value(state, "individuation", state.G[G_IND])
-    g_trans = _goal_value(state, "transcendence", state.G[G_TRANS])
-    ethics = _goal_value(state, "ethics", g_ind)
-    curiosity = _goal_value(state, "curiosity", g_trans)
-    novelty = _goal_value(state, "novelty", g_trans)
-    safety_commitment = (g_ind + ethics) / 2.0
-    growth_commitment = (g_trans + curiosity + novelty) / 3.0
-    service_commitment = _goal_value(state, "help")
-    self_commitment = _goal_value(state, "self_improvement")
-    social_commitment = _goal_value(state, "sociality")
-    caution_posture = (state.modulator("threshold") + state.modulator("securing")) / 2.0
-    exploration_posture = (state.modulator("arousal") + state.modulator("approach")) / 2.0
-    clarity_posture = state.modulator("resolution")
-    affect_posture = state.modulator("valence")
+    g_ind = state.goal(state.schema.goals.individuation_name)
+    g_trans = state.goal(state.schema.goals.transcendence_name)
+
+    primary_values = state.G[
+        state.schema.goals.primary_start:state.schema.goals.anti_goal_start
+    ]
+    anti_goal_values = state.G[state.schema.goals.anti_goal_start:]
+    core_modulator_values = state.M[:state.schema.modulators.core_count]
+    app_modulator_values = state.M[state.schema.modulators.core_count:]
+
+    caution_posture = (
+        _modulator_value(state, "threshold") + _modulator_value(state, "securing")
+    ) / 2.0
+    exploration_posture = (
+        _modulator_value(state, "arousal") + _modulator_value(state, "approach")
+    ) / 2.0
+    clarity_posture = _modulator_value(state, "resolution")
+    affect_posture = _modulator_value(state, "valence")
 
     return SelfModel(
         vector=np.concatenate([
             state.G,
             state.M,
+            np.array([g_ind, g_trans]),
+            _summary(primary_values),
+            _summary(anti_goal_values),
+            _summary(core_modulator_values),
+            _summary(app_modulator_values),
             np.array([
-                safety_commitment,
-                growth_commitment,
-                service_commitment,
-                self_commitment,
-                social_commitment,
                 caution_posture,
                 exploration_posture,
                 clarity_posture,
@@ -116,8 +116,8 @@ def calculate_blend_factor(state: MotivationalState) -> float:
     Calculates the dynamic blend factor (α) based on current overgoals.
     Formula: α = α_0(1 - g_over^{Ind}) + β_0 * g_over^{Trans}
     """
-    g_ind = state.G[G_IND]
-    g_trans = state.G[G_TRANS]
+    g_ind = state.goal(state.schema.goals.individuation_name)
+    g_trans = state.goal(state.schema.goals.transcendence_name)
     
     # Individuation reduces alpha (slowing change), Transcendence increases it (speeding growth).
     alpha = ALPHA_0 * (1.0 - g_ind) + BETA_0 * g_trans
@@ -233,3 +233,112 @@ def check_self_model_drift(
         lipschitz_constant=lipschitz_constant,
         max_allowed_drift=max_allowed_drift,
     ).holds
+
+
+class DefaultCoherencePolicy:
+    """
+    Default self-model and incremental embodiment policy.
+    """
+
+    def estimate_self_model(self, state: MotivationalState) -> SelfModel:
+        return estimate_self_model(state)
+
+    def calculate_blend_factor(self, state: MotivationalState) -> float:
+        return calculate_blend_factor(state)
+
+    def measure_self_model_drift(
+        self,
+        current_state: MotivationalState,
+        next_state: MotivationalState,
+        lipschitz_constant: float = 1.0,
+        max_allowed_drift: float = 0.1,
+        state_drift_weight: float = 0.5,
+        self_model_drift_weight: float = 0.5,
+    ) -> SelfModelDriftResult:
+        distance_moved = current_state.distance_to(next_state)
+        current_model = self.estimate_self_model(current_state)
+        next_model = self.estimate_self_model(next_state)
+        self_model_distance = current_model.distance_to(next_model)
+        lipschitz_bound = lipschitz_constant * distance_moved
+        combined_drift = (
+            state_drift_weight * lipschitz_bound
+            + self_model_drift_weight * self_model_distance
+        )
+
+        return SelfModelDriftResult(
+            current_model=current_model,
+            next_model=next_model,
+            state_distance=distance_moved,
+            self_model_distance=self_model_distance,
+            lipschitz_bound=lipschitz_bound,
+            combined_drift=combined_drift,
+            max_allowed_drift=max_allowed_drift,
+            holds=combined_drift <= max_allowed_drift,
+        )
+
+    def measure_blend(
+        self,
+        current_state: MotivationalState,
+        target_state: MotivationalState,
+        lipschitz_constant: float = 1.0,
+        max_allowed_drift: float = 0.1,
+        min_alpha_scale: float = 0.125,
+        state_drift_weight: float = 0.5,
+        self_model_drift_weight: float = 0.5,
+    ) -> BlendResult:
+        base_alpha = self.calculate_blend_factor(current_state)
+        alpha = base_alpha
+        min_alpha = base_alpha * min_alpha_scale
+
+        while True:
+            next_state = MotivationalState(
+                G=((1.0 - alpha) * current_state.G) + (alpha * target_state.G),
+                M=((1.0 - alpha) * current_state.M) + (alpha * target_state.M),
+                schema=current_state.schema,
+            )
+            drift = self.measure_self_model_drift(
+                current_state,
+                next_state,
+                lipschitz_constant=lipschitz_constant,
+                max_allowed_drift=max_allowed_drift,
+                state_drift_weight=state_drift_weight,
+                self_model_drift_weight=self_model_drift_weight,
+            )
+            if drift.holds or alpha <= min_alpha:
+                return BlendResult(
+                    state=next_state,
+                    alpha=alpha,
+                    base_alpha=base_alpha,
+                    drift=drift,
+                )
+            alpha *= 0.5
+
+    def blend_states(
+        self,
+        current_state: MotivationalState,
+        target_state: MotivationalState,
+        lipschitz_constant: float = 1.0,
+        max_allowed_drift: float = 0.1,
+        min_alpha_scale: float = 0.125,
+    ) -> MotivationalState:
+        return self.measure_blend(
+            current_state,
+            target_state,
+            lipschitz_constant=lipschitz_constant,
+            max_allowed_drift=max_allowed_drift,
+            min_alpha_scale=min_alpha_scale,
+        ).state
+
+    def check_self_model_drift(
+        self,
+        current_state: MotivationalState,
+        next_state: MotivationalState,
+        lipschitz_constant: float = 1.0,
+        max_allowed_drift: float = 0.1,
+    ) -> bool:
+        return self.measure_self_model_drift(
+            current_state,
+            next_state,
+            lipschitz_constant=lipschitz_constant,
+            max_allowed_drift=max_allowed_drift,
+        ).holds
