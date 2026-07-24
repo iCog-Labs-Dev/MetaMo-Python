@@ -4,7 +4,7 @@ from typing import Any, Mapping
 
 import numpy as np
 
-from core.evidence import AppraisalEvidence
+from core.features import StimulusFeatures, GoalChangeFeedback
 from core.schema import MotivationSchema
 from core.state import MotivationalState
 
@@ -39,40 +39,48 @@ class AppraisalProfile(ABC):
         if missing:
             raise ValueError(f"appraisal profile {self.name} missing modulators: {missing}")
 
-    def appraisal_evidence(self, state: MotivationalState, stimulus: Any) -> AppraisalEvidence:
+    def stimulus_features(self, state: MotivationalState, stimulus: Any) -> StimulusFeatures:
         """
-        Return already prepared appraisal evidence.
+        Return already prepared stimulus features.
         """
-        if isinstance(stimulus, AppraisalEvidence):
+        if isinstance(stimulus, StimulusFeatures):
             return stimulus
         raise TypeError(
             "No default MetaMo stimulus schema exists; application profiles must "
-            "override appraisal_evidence() for raw stimulus objects"
+            "override stimulus_features() for raw stimulus objects"
         )
 
     @abstractmethod
     def core_modulator_deltas(
         self,
         state: MotivationalState,
-        evidence: AppraisalEvidence,
+        features: StimulusFeatures,
     ) -> dict[str, float]:
         """
-        Convert profile-owned evidence into core OpenPsi modulator deltas.
-
-        Applications implement this hook according to their own stimulus and
-        evidence semantics.
+        Convert profile-owned stimulus features into core OpenPsi modulator deltas.
         """
         pass
 
     def application_modulator_deltas(
         self,
         state: MotivationalState,
-        evidence: AppraisalEvidence,
+        features: StimulusFeatures,
     ) -> dict[str, float]:
         """
         Optional application specific modulator update rule.
         """
         return {}
+
+    def goal_change_feedback(
+        self,
+        state: MotivationalState,
+        stimulus: Any,
+        features: StimulusFeatures,
+    ) -> GoalChangeFeedback:
+        """
+        Produce optional feedback for the MAGUS goal-change calculator.
+        """
+        return GoalChangeFeedback()
 
     def bound_core_value(self, value: float) -> float:
         return float(sigmoid(4.0 * (value - 0.5)))
@@ -83,14 +91,14 @@ class AppraisalProfile(ABC):
 
     def appraise(self, state: MotivationalState, stimulus: Any) -> MotivationalState:
         self.validate(state.schema)
-        stimulus_evidence = self.appraisal_evidence(state, stimulus)
+        extracted_features = self.stimulus_features(state, stimulus)
         next_state = state.copy()
 
-        for name, delta in self.core_modulator_deltas(state, stimulus_evidence).items():
+        for name, delta in self.core_modulator_deltas(state, extracted_features).items():
             idx = next_state.modulator_index(name)
             next_state.M[idx] = self.bound_core_value(next_state.M[idx] + delta)
 
-        for name, delta in self.application_modulator_deltas(state, stimulus_evidence).items():
+        for name, delta in self.application_modulator_deltas(state, extracted_features).items():
             if name not in state.schema.modulators.application_specific:
                 raise ValueError(f"{name} is not an application-specific modulator")
             idx = next_state.modulator_index(name)

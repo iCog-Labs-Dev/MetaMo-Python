@@ -1,5 +1,6 @@
 from typing import Any
 
+from core.features import GoalChangeFeedback
 from core.state import MotivationalState
 from category.functors import AppraisalComonad
 from openpsi.profile import AppraisalProfile
@@ -21,6 +22,14 @@ class OpenPsiAppraisal(AppraisalComonad):
 
     def appraise(self, state: MotivationalState, stimulus: Any) -> MotivationalState:
         """
-        Applies Psi((G, M), s_app) = (G, M') through profile evidence mapping.
+        Applies Psi((G, M), s) = (G, M') through profile feature mapping.
         """
         return self.profile.appraise(state, stimulus)
+
+    def goal_change_feedback(
+        self,
+        state: MotivationalState,
+        stimulus: Any,
+    ) -> GoalChangeFeedback:
+        features = self.profile.stimulus_features(state, stimulus)
+        return self.profile.goal_change_feedback(state, stimulus, features)
