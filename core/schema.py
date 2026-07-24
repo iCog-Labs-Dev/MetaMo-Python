@@ -173,15 +173,6 @@ class MotivationSchema:
 
 
 DEFAULT_MOTIVATION_SCHEMA = MotivationSchema(
-    goals=MagusGoalSchema(
-        primary_goals=(
-            "help",
-            "curiosity",
-            "novelty",
-            "self_improvement",
-            "ethics",
-            "sociality",
-        ),
-    ),
+    goals=MagusGoalSchema(primary_goals=()),
     modulators=ModulatorSchema(),
 )

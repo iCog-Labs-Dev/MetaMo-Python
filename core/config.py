@@ -4,12 +4,6 @@ from core.schema import DEFAULT_MOTIVATION_SCHEMA
 NUM_GOALS = DEFAULT_MOTIVATION_SCHEMA.num_goals
 G_IND = DEFAULT_MOTIVATION_SCHEMA.goal_index("individuation")
 G_TRANS = DEFAULT_MOTIVATION_SCHEMA.goal_index("transcendence")
-G_HELP = DEFAULT_MOTIVATION_SCHEMA.goal_index("help")
-G_CURIO = DEFAULT_MOTIVATION_SCHEMA.goal_index("curiosity")
-G_NOVEL = DEFAULT_MOTIVATION_SCHEMA.goal_index("novelty")
-G_SELF = DEFAULT_MOTIVATION_SCHEMA.goal_index("self_improvement")
-G_ETHIC = DEFAULT_MOTIVATION_SCHEMA.goal_index("ethics")
-G_SOC = DEFAULT_MOTIVATION_SCHEMA.goal_index("sociality")
 
 NUM_MODULATORS = DEFAULT_MOTIVATION_SCHEMA.num_modulators
 M_VALENCE = DEFAULT_MOTIVATION_SCHEMA.modulator_index("valence")
