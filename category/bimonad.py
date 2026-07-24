@@ -3,22 +3,8 @@ import numpy as np
 from dataclasses import dataclass
 from core.state import MotivationalState, Action
 from core.config import (
-    G_ETHIC,
     LAX_DISTRIBUTIVE_DELTA,
     PARALLEL_COMPOSITION_DELTA,
-    G_IND,
-    G_HELP,
-    G_NOVEL,
-    G_SELF,
-    G_SOC,
-    G_TRANS,
-    G_CURIO,
-    M_APPROACH,
-    M_AROUSAL,
-    M_RESOLUTION,
-    M_SECURING,
-    M_THRESHOLD,
-    M_VALENCE,
     )
 from category.diagnostics import (
     MetaMoDiagnostics,
@@ -27,14 +13,10 @@ from category.diagnostics import (
 )
 from category.functors import AppraisalComonad, DecisionMonad
 from category.laws import StateLawCheckResult
-from dynamics.coherence import measure_blend, measure_self_model_drift
+from category.merge import DefaultParallelMergePolicy
+from dynamics.coherence import DefaultCoherencePolicy
 from dynamics.stability import (
-    apply_homeostatic_damping,
-    boundary_pressure,
-    check_contractive_update_law,
-    is_in_safe_region,
-    project_to_safe_region,
-    raise_boundary_caution,
+    DefaultStabilityPolicy,
 )
 
 
@@ -54,9 +36,19 @@ class MetaMoPseudoBimonad:
     Represents the composite appraisal-then-decision operator F = D o ψ.
     This forms a pseudo-bimonad on the motivational state space X = G \times M.
     """
-    def __init__(self, appraisal: AppraisalComonad, decision: DecisionMonad):
+    def __init__(
+        self,
+        appraisal: AppraisalComonad,
+        decision: DecisionMonad,
+        stability_policy=None,
+        coherence_policy=None,
+        merge_policy=None,
+    ):
         self.appraisal = appraisal
         self.decision = decision
+        self.stability_policy = stability_policy or DefaultStabilityPolicy()
+        self.coherence_policy = coherence_policy or DefaultCoherencePolicy()
+        self.merge_policy = merge_policy or DefaultParallelMergePolicy()
         self.diagnostics_history = MetaMoDiagnosticsHistory()
 
     def _compute_transition_details(self, state: MotivationalState, stimulus: Any, candidates: List[Action]) -> TransitionComputation:
@@ -66,7 +58,7 @@ class MetaMoPseudoBimonad:
         # 1. Appraise - Update modulators based on stimulus.
         goal_change_feedback = self._goal_change_feedback(state, stimulus)
         appraised_state = self.appraisal.appraise(state, stimulus)
-        appraised_state = raise_boundary_caution(appraised_state)
+        appraised_state = self.stability_policy.raise_boundary_caution(appraised_state)
 
         # 2. Decide - Score candidates and update goals.
         chosen_action, proposed_delta_g = self.decision.decide(
@@ -75,13 +67,13 @@ class MetaMoPseudoBimonad:
             feedback=goal_change_feedback,
         )
 
-        damped_delta_g = apply_homeostatic_damping(appraised_state, proposed_delta_g)
+        damped_delta_g = self.stability_policy.apply_homeostatic_damping(appraised_state, proposed_delta_g)
         next_state = MotivationalState(
             G=np.clip(appraised_state.G + damped_delta_g, 0.0, 1.0),
             M=appraised_state.M.copy(),
             schema=appraised_state.schema,
         )
-        projected_state = project_to_safe_region(next_state)
+        projected_state = self.stability_policy.project_to_safe_region(next_state)
 
         return TransitionComputation(
             action=chosen_action,
@@ -112,12 +104,12 @@ class MetaMoPseudoBimonad:
             projection_delta += next_state.distance_to(fallback_state)
             next_state = fallback_state
 
-        if not check_contractive_update_law(self, state, reference_state, stimulus, candidates):
+        if not self.stability_policy.check_contractive_update_law(self, state, reference_state, stimulus, candidates):
             fallback_state = self._apply_conservative_fallback(state, next_state)
             projection_delta += next_state.distance_to(fallback_state)
             next_state = fallback_state
 
-        if not is_in_safe_region(next_state):
+        if not self.stability_policy.is_in_safe_region(next_state):
             fallback_state = self._apply_conservative_fallback(state, next_state)
             projection_delta += next_state.distance_to(fallback_state)
             next_state = fallback_state
@@ -144,20 +136,20 @@ class MetaMoPseudoBimonad:
         """
         Apply a proposed goal update inside the same stabilization path used by the main transition.
         """
-        damped_delta_g = apply_homeostatic_damping(decision_state, proposed_delta_g)
+        damped_delta_g = self.stability_policy.apply_homeostatic_damping(decision_state, proposed_delta_g)
         next_state = MotivationalState(
             G=np.clip(decision_state.G + damped_delta_g, 0.0, 1.0),
             M=decision_state.M.copy(),
             schema=decision_state.schema,
         )
-        return project_to_safe_region(next_state)
+        return self.stability_policy.project_to_safe_region(next_state)
 
     def _decision_context(self, state: MotivationalState, stimulus: Any) -> MotivationalState:
         """
         Build the post-appraisal state that the decision monad should score.
         """
         appraised_state = self.appraisal.appraise(state, stimulus)
-        return raise_boundary_caution(appraised_state)
+        return self.stability_policy.raise_boundary_caution(appraised_state)
 
     def _goal_change_feedback(self, state: MotivationalState, stimulus: Any) -> Any:
         if hasattr(self.appraisal, "goal_change_feedback"):
@@ -256,7 +248,7 @@ class MetaMoPseudoBimonad:
             M=((current_state.M * 0.5) + (next_state.M * 0.5)),
             schema=current_state.schema,
         )
-        return project_to_safe_region(fallback_state)
+        return self.stability_policy.project_to_safe_region(fallback_state)
 
     def step(
         self,
@@ -297,7 +289,7 @@ class MetaMoPseudoBimonad:
         chosen_action = target_computation.action
         target_state = target_computation.state
         reference_state = self._local_reference_state(state, target_state)
-        contractive_holds = check_contractive_update_law(
+        contractive_holds = self.stability_policy.check_contractive_update_law(
             self,
             state,
             reference_state,
@@ -306,14 +298,14 @@ class MetaMoPseudoBimonad:
         )
 
         if embody:
-            blend_result = measure_blend(state, target_state)
+            blend_result = self.coherence_policy.measure_blend(state, target_state)
             next_state = blend_result.state
             drift = blend_result.drift
             blend_alpha = blend_result.alpha
             base_blend_alpha = blend_result.base_alpha
         else:
             next_state = target_state
-            drift = measure_self_model_drift(state, next_state)
+            drift = self.coherence_policy.measure_self_model_drift(state, next_state)
             blend_alpha = 1.0
             base_blend_alpha = 1.0
 
@@ -323,11 +315,11 @@ class MetaMoPseudoBimonad:
             lax_tolerance=lax_result.tolerance,
             lax_holds=lax_result.holds,
             contractive_holds=contractive_holds,
-            target_in_safe_region=is_in_safe_region(target_state),
-            final_in_safe_region=is_in_safe_region(next_state),
-            boundary_pressure_before=boundary_pressure(state),
-            boundary_pressure_target=boundary_pressure(target_state),
-            boundary_pressure_final=boundary_pressure(next_state),
+            target_in_safe_region=self.stability_policy.is_in_safe_region(target_state),
+            final_in_safe_region=self.stability_policy.is_in_safe_region(next_state),
+            boundary_pressure_before=self.stability_policy.boundary_pressure(state),
+            boundary_pressure_target=self.stability_policy.boundary_pressure(target_state),
+            boundary_pressure_final=self.stability_policy.boundary_pressure(next_state),
             projection_delta=target_computation.projection_delta,
             target_distance=state.distance_to(target_state),
             state_drift=drift.state_distance,
@@ -435,63 +427,11 @@ class MetaMoPseudoBimonad:
         """
         Implements Principle 3: Parallel Motivational Compositionality.
         Witnesses the lax-monoidal structure.
-        Merges two parallel motivational subsystems with dimension-wise coherence corrections.
+        Merges two parallel motivational subsystems with schema-aware coherence corrections.
         """
-        if state_a.schema != state_b.schema:
-            raise ValueError("Cannot merge states with different motivation schemas")
-
-        weight_a = state_a.G[G_IND]
-        weight_b = state_b.G[G_IND]
-        total_weight = weight_a + weight_b + 1e-9
-
-        base_G = ((state_a.G * weight_a) + (state_b.G * weight_b)) / total_weight
-        base_M = ((state_a.M * weight_a) + (state_b.M * weight_b)) / total_weight
-
-        disagreement_G = np.abs(state_a.G - state_b.G)
-        disagreement_M = np.abs(state_a.M - state_b.M)
-
-        consensus_G = base_G.copy()
-        consensus_M = base_M.copy()
-
-        # Safety-critical dimensions preserve the stronger caution/ethics signal under disagreement.
-        safety_goal_idx = np.array([G_IND, G_HELP, G_ETHIC])
-        consensus_G[safety_goal_idx] = np.maximum(state_a.G[safety_goal_idx], state_b.G[safety_goal_idx])
-
-        # Exploratory dimensions require stronger agreement; otherwise they are damped toward the shared floor.
-        exploratory_goal_idx = np.array([G_TRANS, G_CURIO, G_NOVEL, G_SELF])
-        consensus_G[exploratory_goal_idx] = np.minimum(state_a.G[exploratory_goal_idx], state_b.G[exploratory_goal_idx])
-
-        # Social engagement is shared but should not outrun subsystem agreement.
-        consensus_G[G_SOC] = min(base_G[G_SOC], state_a.G[G_SOC], state_b.G[G_SOC])
-
-        # Caution modulators preserve the higher warning signal.
-        caution_mod_idx = np.array([M_THRESHOLD, M_SECURING])
-        consensus_M[caution_mod_idx] = np.maximum(state_a.M[caution_mod_idx], state_b.M[caution_mod_idx])
-
-        # Exploratory modulators are damped unless both subsystems align.
-        exploratory_mod_idx = np.array([M_AROUSAL, M_APPROACH])
-        consensus_M[exploratory_mod_idx] = np.minimum(state_a.M[exploratory_mod_idx], state_b.M[exploratory_mod_idx])
-
-        # Valence/resolution remain closer to the weighted consensus.
-        shared_mod_idx = np.array([M_VALENCE, M_RESOLUTION])
-        consensus_M[shared_mod_idx] = (
-            (state_a.M[shared_mod_idx] + state_b.M[shared_mod_idx]) / 2.0
+        return self.merge_policy.merge(
+            state_a,
+            state_b,
+            decision=self.decision,
+            coherence_correction=coherence_correction,
         )
-
-        goal_correction_scale = np.ones_like(base_G)
-        goal_correction_scale[safety_goal_idx] = 1.5
-        goal_correction_scale[exploratory_goal_idx] = 1.0
-        goal_correction_scale[G_SOC] = 0.8
-
-        mod_correction_scale = np.ones_like(base_M)
-        mod_correction_scale[caution_mod_idx] = 1.5
-        mod_correction_scale[exploratory_mod_idx] = 1.0
-        mod_correction_scale[shared_mod_idx] = 0.8
-
-        goal_correction = np.clip(coherence_correction * disagreement_G * goal_correction_scale, 0.0, 1.0)
-        mod_correction = np.clip(coherence_correction * disagreement_M * mod_correction_scale, 0.0, 1.0)
-
-        merged_G = base_G + goal_correction * (consensus_G - base_G)
-        merged_M = base_M + mod_correction * (consensus_M - base_M)
-
-        return MotivationalState(G=merged_G, M=merged_M, schema=state_a.schema)

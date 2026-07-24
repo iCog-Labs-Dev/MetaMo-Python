@@ -1,24 +1,44 @@
 import numpy as np
-from typing import Any, List
+from typing import Any, List, Optional
 from core.state import MotivationalState
 from core.config import (
-    G_IND, 
     THETA_SAFE, 
     G_MAX, 
     ETA_BOUNDARY, 
     C_CONTRACT, 
     EPSILON,
-    M_SECURING,
-    M_THRESHOLD
 )
 from core.state import Action
+
+
+def _individuation_index(state: MotivationalState) -> int:
+    return state.goal_index(state.schema.goals.individuation_name)
+
+
+def _modulator_index_or_none(state: MotivationalState, name: str) -> Optional[int]:
+    try:
+        return state.modulator_index(name)
+    except KeyError:
+        return None
+
+
+def _caution_indices(state: MotivationalState) -> list[int]:
+    return [
+        idx
+        for idx in (
+            _modulator_index_or_none(state, "threshold"),
+            _modulator_index_or_none(state, "securing"),
+        )
+        if idx is not None
+    ]
+
 
 def is_in_safe_region(state: MotivationalState) -> bool:
     """
     Checks if the state is within the designated safe region R.
     R = {(G, M) | g_over^Ind >= \theta_{safe} \wedge ||G|| <= G_{max}}.
     """
-    g_ind = state.G[G_IND]
+    g_ind = state.G[_individuation_index(state)]
     g_norm = np.linalg.norm(state.G)
     
     return (g_ind >= THETA_SAFE) and (g_norm <= G_MAX)
@@ -43,7 +63,8 @@ def distance_to_unsafe_boundary(state: MotivationalState) -> float:
     Calculates how close the agent is to violating THETA_SAFE or G_MAX.
     """
     # Distance to the individuation safety floor
-    dist_to_theta = max(0.0, state.G[G_IND] - THETA_SAFE)
+    ind_idx = _individuation_index(state)
+    dist_to_theta = max(0.0, state.G[ind_idx] - THETA_SAFE)
     
     # Distance to the maximum goal norm ceiling
     g_norm = np.linalg.norm(state.G)
@@ -74,8 +95,8 @@ def raise_boundary_caution(state: MotivationalState) -> MotivationalState:
 
     next_state = state.copy()
     caution_boost = 0.25 * pressure
-    next_state.M[M_SECURING] = min(1.0, next_state.M[M_SECURING] + caution_boost)
-    next_state.M[M_THRESHOLD] = min(1.0, next_state.M[M_THRESHOLD] + caution_boost)
+    for caution_idx in _caution_indices(next_state):
+        next_state.M[caution_idx] = min(1.0, next_state.M[caution_idx] + caution_boost)
     return next_state
 
 def check_contractive_update_law(
@@ -117,7 +138,7 @@ def apply_homeostatic_damping(state: MotivationalState, delta_g: np.ndarray) -> 
         return delta_g
 
     # Stronger boundary pressure and higher individuation induce more contraction.
-    damping_factor = max(0.0, 1.0 - (pressure * state.G[G_IND]))
+    damping_factor = max(0.0, 1.0 - (pressure * state.G[_individuation_index(state)]))
     return delta_g * damping_factor
 
 
@@ -128,12 +149,13 @@ def project_to_safe_region(state: MotivationalState) -> MotivationalState:
     """
     initial_pressure = boundary_pressure(state)
     next_state = state.copy()
-    next_state.G[G_IND] = max(next_state.G[G_IND], THETA_SAFE)
+    ind_idx = _individuation_index(next_state)
+    next_state.G[ind_idx] = max(next_state.G[ind_idx], THETA_SAFE)
 
-    other_idx = [idx for idx in range(next_state.G.shape[0]) if idx != G_IND]
+    other_idx = [idx for idx in range(next_state.G.shape[0]) if idx != ind_idx]
     other_goals = next_state.G[other_idx]
     other_norm = np.linalg.norm(other_goals)
-    max_other_norm = np.sqrt(max(0.0, G_MAX**2 - next_state.G[G_IND] ** 2))
+    max_other_norm = np.sqrt(max(0.0, G_MAX**2 - next_state.G[ind_idx] ** 2))
     if other_norm > max_other_norm and other_norm > 0.0:
         next_state.G[other_idx] = other_goals * (max_other_norm / other_norm)
 
@@ -141,7 +163,98 @@ def project_to_safe_region(state: MotivationalState) -> MotivationalState:
     caution_pressure = max(initial_pressure, final_pressure)
     if caution_pressure > 0.0:
         caution_boost = 0.1 * caution_pressure
-        next_state.M[M_SECURING] = min(1.0, next_state.M[M_SECURING] + caution_boost)
-        next_state.M[M_THRESHOLD] = min(1.0, next_state.M[M_THRESHOLD] + caution_boost)
+        for caution_idx in _caution_indices(next_state):
+            next_state.M[caution_idx] = min(1.0, next_state.M[caution_idx] + caution_boost)
 
     return next_state
+
+
+class DefaultStabilityPolicy:
+    """
+    Default homeostatic stability policy.
+    """
+
+    def is_in_safe_region(self, state: MotivationalState) -> bool:
+        return is_in_safe_region(state)
+
+    def boundary_pressure(self, state: MotivationalState) -> float:
+        if not self.is_in_safe_region(state):
+            return 1.0
+
+        dist_to_boundary = self.distance_to_unsafe_boundary(state)
+        if dist_to_boundary >= ETA_BOUNDARY:
+            return 0.0
+
+        return float(np.clip(1.0 - (dist_to_boundary / ETA_BOUNDARY), 0.0, 1.0))
+
+    def distance_to_unsafe_boundary(self, state: MotivationalState) -> float:
+        return distance_to_unsafe_boundary(state)
+
+    def is_in_boundary_band(self, state: MotivationalState) -> bool:
+        if not self.is_in_safe_region(state):
+            return False
+
+        dist_to_boundary = self.distance_to_unsafe_boundary(state)
+        return dist_to_boundary <= ETA_BOUNDARY
+
+    def raise_boundary_caution(self, state: MotivationalState) -> MotivationalState:
+        pressure = self.boundary_pressure(state)
+        if pressure == 0.0:
+            return state
+
+        next_state = state.copy()
+        caution_boost = 0.25 * pressure
+        for caution_idx in _caution_indices(next_state):
+            next_state.M[caution_idx] = min(1.0, next_state.M[caution_idx] + caution_boost)
+        return next_state
+
+    def check_contractive_update_law(
+        self,
+        bimonad,
+        x: MotivationalState,
+        y: MotivationalState,
+        stimulus: Any,
+        candidates: List[Action],
+    ) -> bool:
+        if not (self.is_in_boundary_band(x) or self.is_in_boundary_band(y)):
+            return True
+
+        dist_initial = x.distance_to(y)
+        _, F_x = bimonad._compute_transition(x, stimulus, candidates)
+        _, F_y = bimonad._compute_transition(y, stimulus, candidates)
+        dist_final = F_x.distance_to(F_y)
+        return dist_final <= (C_CONTRACT * dist_initial) + EPSILON
+
+    def apply_homeostatic_damping(
+        self,
+        state: MotivationalState,
+        delta_g: np.ndarray,
+    ) -> np.ndarray:
+        pressure = self.boundary_pressure(state)
+        if pressure == 0.0:
+            return delta_g
+
+        damping_factor = max(0.0, 1.0 - (pressure * state.G[_individuation_index(state)]))
+        return delta_g * damping_factor
+
+    def project_to_safe_region(self, state: MotivationalState) -> MotivationalState:
+        initial_pressure = self.boundary_pressure(state)
+        next_state = state.copy()
+        ind_idx = _individuation_index(next_state)
+        next_state.G[ind_idx] = max(next_state.G[ind_idx], THETA_SAFE)
+
+        other_idx = [idx for idx in range(next_state.G.shape[0]) if idx != ind_idx]
+        other_goals = next_state.G[other_idx]
+        other_norm = np.linalg.norm(other_goals)
+        max_other_norm = np.sqrt(max(0.0, G_MAX**2 - next_state.G[ind_idx] ** 2))
+        if other_norm > max_other_norm and other_norm > 0.0:
+            next_state.G[other_idx] = other_goals * (max_other_norm / other_norm)
+
+        final_pressure = self.boundary_pressure(next_state)
+        caution_pressure = max(initial_pressure, final_pressure)
+        if caution_pressure > 0.0:
+            caution_boost = 0.1 * caution_pressure
+            for caution_idx in _caution_indices(next_state):
+                next_state.M[caution_idx] = min(1.0, next_state.M[caution_idx] + caution_boost)
+
+        return next_state
