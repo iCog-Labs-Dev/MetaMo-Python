@@ -30,6 +30,12 @@ def _summary(values: np.ndarray) -> np.ndarray:
     ])
 
 
+def _mean_modulator_values(state: MotivationalState, names: tuple[str, ...]) -> float:
+    if not names:
+        return 0.0
+    return float(np.mean([_modulator_value(state, name) for name in names]))
+
+
 @dataclass(frozen=True)
 class SelfModel:
     """
@@ -70,7 +76,13 @@ class BlendResult:
     drift: SelfModelDriftResult
 
 
-def estimate_self_model(state: MotivationalState) -> SelfModel:
+def estimate_self_model(
+    state: MotivationalState,
+    caution_modulator_names: tuple[str, ...] = ("threshold", "securing"),
+    exploration_modulator_names: tuple[str, ...] = ("arousal", "approach"),
+    clarity_modulator_name: str | None = "resolution",
+    affect_modulator_name: str | None = "valence",
+) -> SelfModel:
     """
     Builds an explicit lightweight self-model H(x) from schema structure.
     """
@@ -84,14 +96,18 @@ def estimate_self_model(state: MotivationalState) -> SelfModel:
     core_modulator_values = state.M[:state.schema.modulators.core_count]
     app_modulator_values = state.M[state.schema.modulators.core_count:]
 
-    caution_posture = (
-        _modulator_value(state, "threshold") + _modulator_value(state, "securing")
-    ) / 2.0
-    exploration_posture = (
-        _modulator_value(state, "arousal") + _modulator_value(state, "approach")
-    ) / 2.0
-    clarity_posture = _modulator_value(state, "resolution")
-    affect_posture = _modulator_value(state, "valence")
+    caution_posture = _mean_modulator_values(state, caution_modulator_names)
+    exploration_posture = _mean_modulator_values(state, exploration_modulator_names)
+    clarity_posture = (
+        _modulator_value(state, clarity_modulator_name)
+        if clarity_modulator_name is not None
+        else 0.0
+    )
+    affect_posture = (
+        _modulator_value(state, affect_modulator_name)
+        if affect_modulator_name is not None
+        else 0.0
+    )
 
     return SelfModel(
         vector=np.concatenate([
@@ -235,13 +251,25 @@ def check_self_model_drift(
     ).holds
 
 
+@dataclass(frozen=True)
 class DefaultCoherencePolicy:
     """
     Default self-model and incremental embodiment policy.
     """
 
+    caution_modulator_names: tuple[str, ...] = ("threshold", "securing")
+    exploration_modulator_names: tuple[str, ...] = ("arousal", "approach")
+    clarity_modulator_name: str | None = "resolution"
+    affect_modulator_name: str | None = "valence"
+
     def estimate_self_model(self, state: MotivationalState) -> SelfModel:
-        return estimate_self_model(state)
+        return estimate_self_model(
+            state,
+            caution_modulator_names=self.caution_modulator_names,
+            exploration_modulator_names=self.exploration_modulator_names,
+            clarity_modulator_name=self.clarity_modulator_name,
+            affect_modulator_name=self.affect_modulator_name,
+        )
 
     def calculate_blend_factor(self, state: MotivationalState) -> float:
         return calculate_blend_factor(state)

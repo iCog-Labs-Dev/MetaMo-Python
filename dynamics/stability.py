@@ -1,3 +1,4 @@
+from dataclasses import dataclass
 import numpy as np
 from typing import Any, List, Optional
 from core.state import MotivationalState
@@ -9,6 +10,8 @@ from core.config import (
     EPSILON,
 )
 from core.state import Action
+
+DEFAULT_CAUTION_MODULATOR_NAMES = ("threshold", "securing")
 
 
 def _individuation_index(state: MotivationalState) -> int:
@@ -22,13 +25,13 @@ def _modulator_index_or_none(state: MotivationalState, name: str) -> Optional[in
         return None
 
 
-def _caution_indices(state: MotivationalState) -> list[int]:
+def _caution_indices(
+    state: MotivationalState,
+    names: tuple[str, ...] = DEFAULT_CAUTION_MODULATOR_NAMES,
+) -> list[int]:
     return [
         idx
-        for idx in (
-            _modulator_index_or_none(state, "threshold"),
-            _modulator_index_or_none(state, "securing"),
-        )
+        for idx in (_modulator_index_or_none(state, name) for name in names)
         if idx is not None
     ]
 
@@ -169,10 +172,13 @@ def project_to_safe_region(state: MotivationalState) -> MotivationalState:
     return next_state
 
 
+@dataclass(frozen=True)
 class DefaultStabilityPolicy:
     """
     Default homeostatic stability policy.
     """
+
+    caution_modulator_names: tuple[str, ...] = DEFAULT_CAUTION_MODULATOR_NAMES
 
     def is_in_safe_region(self, state: MotivationalState) -> bool:
         return is_in_safe_region(state)
@@ -204,7 +210,7 @@ class DefaultStabilityPolicy:
 
         next_state = state.copy()
         caution_boost = 0.25 * pressure
-        for caution_idx in _caution_indices(next_state):
+        for caution_idx in _caution_indices(next_state, self.caution_modulator_names):
             next_state.M[caution_idx] = min(1.0, next_state.M[caution_idx] + caution_boost)
         return next_state
 
@@ -254,7 +260,7 @@ class DefaultStabilityPolicy:
         caution_pressure = max(initial_pressure, final_pressure)
         if caution_pressure > 0.0:
             caution_boost = 0.1 * caution_pressure
-            for caution_idx in _caution_indices(next_state):
+            for caution_idx in _caution_indices(next_state, self.caution_modulator_names):
                 next_state.M[caution_idx] = min(1.0, next_state.M[caution_idx] + caution_boost)
 
         return next_state

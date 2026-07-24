@@ -1,12 +1,19 @@
+from dataclasses import dataclass
+
 import numpy as np
 
 from core.state import MotivationalState
 
 
+@dataclass(frozen=True)
 class DefaultParallelMergePolicy:
     """
     Schema-aware default policy for Principle 3 parallel composition.
     """
+
+    caution_modulator_names: tuple[str, ...] = ("threshold", "securing")
+    exploratory_modulator_names: tuple[str, ...] = ("arousal", "approach")
+    shared_modulator_names: tuple[str, ...] = ("valence", "resolution")
 
     def merge(
         self,
@@ -67,9 +74,9 @@ class DefaultParallelMergePolicy:
         if balanced_goal_idx.size:
             consensus_G[balanced_goal_idx] = (state_a.G[balanced_goal_idx] + state_b.G[balanced_goal_idx]) / 2.0
 
-        caution_mod_idx = self._modulator_indices_for_names(schema, {"threshold", "securing"})
-        exploratory_mod_idx = self._modulator_indices_for_names(schema, {"arousal", "approach"})
-        shared_mod_idx = self._modulator_indices_for_names(schema, {"valence", "resolution"})
+        caution_mod_idx = self._modulator_indices_for_names(schema, set(self.caution_modulator_names))
+        exploratory_mod_idx = self._modulator_indices_for_names(schema, set(self.exploratory_modulator_names))
+        shared_mod_idx = self._modulator_indices_for_names(schema, set(self.shared_modulator_names))
 
         if caution_mod_idx.size:
             consensus_M[caution_mod_idx] = np.maximum(state_a.M[caution_mod_idx], state_b.M[caution_mod_idx])
