@@ -1,42 +1,32 @@
-from typing import List, Tuple
+from typing import Any, List, Tuple
 
 import numpy as np
 
 from category.functors import DecisionMonad
 from core.config import LAMBDA_IND, LAMBDA_TRANS
 from core.state import Action, MotivationalState
+from magus.goal_change import DefaultGoalChangeCalculator, GoalChangeCalculator
 from magus.profile import DecisionProfile
-
-
-def _default_profile() -> DecisionProfile:
-    from applications.research_assistant.decision_profile import (
-        RESEARCH_ASSISTANT_DECISION_PROFILE,
-    )
-
-    return RESEARCH_ASSISTANT_DECISION_PROFILE
-
-
-def relevant_modulator(state: MotivationalState, goal_idx: int) -> float:
-    """Compatibility helper using the default Research Assistant profile."""
-    return _default_profile().relevant_modulator(state, goal_idx)
-
-
-def overgoal_support(goal_idx: int, g_ind: float, g_trans: float) -> float:
-    """Compatibility helper using the default Research Assistant profile."""
-    return _default_profile().overgoal_support(goal_idx, g_ind, g_trans)
 
 
 class MagusDecision(DecisionMonad):
     """
     Generic MAGUS additive decision monad.
 
-    The monad keeps the weighted-additive DS form. Application semantics such
-    as goal-modulator relevance, compatibility, and anti-goal penalties are
-    supplied by a DecisionProfile.
     """
 
-    def __init__(self, profile: DecisionProfile | None = None):
-        self.profile = profile or _default_profile()
+    def __init__(
+        self,
+        profile: DecisionProfile,
+        goal_change_calculator: GoalChangeCalculator | None = None,
+    ):
+        if profile is None:
+            raise TypeError("MagusDecision requires an explicit DecisionProfile")
+        self.profile = profile
+        self.goal_change_calculator = (
+            goal_change_calculator
+            or DefaultGoalChangeCalculator(self.profile)
+        )
 
     def unit(self, state: MotivationalState) -> MotivationalState:
         """
@@ -56,16 +46,38 @@ class MagusDecision(DecisionMonad):
             lambda_trans=LAMBDA_TRANS,
         )
 
-    def decide(self, state: MotivationalState, candidates: List[Action]) -> Tuple[Action, np.ndarray]:
+    def propose_delta_g(
+        self,
+        state: MotivationalState,
+        candidate: Action,
+        feedback: Any = None,
+    ) -> np.ndarray:
+        """
+        Compute the calculator-derived Delta G for a selected candidate action.
+        """
+        return self.goal_change_calculator.delta_g(
+            state,
+            candidate,
+            feedback,
+            lambda_ind=LAMBDA_IND,
+            lambda_trans=LAMBDA_TRANS,
+        )
+
+    def decide(
+        self,
+        state: MotivationalState,
+        candidates: List[Action],
+        feedback: Any = None,
+    ) -> Tuple[Action, np.ndarray]:
         """
         Scores each candidate action and returns the selected action together
-        with its proposed goal update Delta G. The pseudo-bimonad owns the
-        finalized state transition after damping and safe-region enforcement.
+        with its proposed goal update Delta G.
         """
         if not candidates:
             raise ValueError("Must provide at least one candidate action to the decision monad.")
 
         best_action = None
+        best_delta_g = None
         best_score = -float("inf")
 
         for candidate in candidates:
@@ -73,5 +85,6 @@ class MagusDecision(DecisionMonad):
             if total_score > best_score:
                 best_score = total_score
                 best_action = candidate
+                best_delta_g = self.propose_delta_g(state, candidate, feedback)
 
-        return best_action, best_action.delta_g.copy()
+        return best_action, best_delta_g.copy()

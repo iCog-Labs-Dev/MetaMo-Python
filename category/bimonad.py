@@ -64,11 +64,16 @@ class MetaMoPseudoBimonad:
         Compute one appraisal/decision transition before runtime validation.
         """
         # 1. Appraise - Update modulators based on stimulus.
+        goal_change_feedback = self._goal_change_feedback(state, stimulus)
         appraised_state = self.appraisal.appraise(state, stimulus)
         appraised_state = raise_boundary_caution(appraised_state)
-        
+
         # 2. Decide - Score candidates and update goals.
-        chosen_action, proposed_delta_g = self.decision.decide(appraised_state, candidates)
+        chosen_action, proposed_delta_g = self.decision.decide(
+            appraised_state,
+            candidates,
+            feedback=goal_change_feedback,
+        )
 
         damped_delta_g = apply_homeostatic_damping(appraised_state, proposed_delta_g)
         next_state = MotivationalState(
@@ -154,6 +159,11 @@ class MetaMoPseudoBimonad:
         appraised_state = self.appraisal.appraise(state, stimulus)
         return raise_boundary_caution(appraised_state)
 
+    def _goal_change_feedback(self, state: MotivationalState, stimulus: Any) -> Any:
+        if hasattr(self.appraisal, "goal_change_feedback"):
+            return self.appraisal.goal_change_feedback(state, stimulus)
+        return None
+
     def _local_reference_state(self, state: MotivationalState, next_state: MotivationalState) -> MotivationalState:
         """
         Build a nearby state to probe local contractivity without depending on another subsystem.
@@ -215,19 +225,26 @@ class MetaMoPseudoBimonad:
         action = self.consensus_action(state_a, state_b, stimulus, candidates)
         context_a = self._decision_context(state_a, stimulus)
         context_b = self._decision_context(state_b, stimulus)
-        delta_a = self._proposed_delta_for_action(context_a, action)
-        delta_b = self._proposed_delta_for_action(context_b, action)
+        feedback_a = self._goal_change_feedback(state_a, stimulus)
+        feedback_b = self._goal_change_feedback(state_b, stimulus)
+        delta_a = self._proposed_delta_for_action(context_a, action, feedback_a)
+        delta_b = self._proposed_delta_for_action(context_b, action, feedback_b)
         target_a = self._state_from_delta(context_a, delta_a)
         target_b = self._state_from_delta(context_b, delta_b)
         merged_target = self.parallel_merge(target_a, target_b)
         return action, merged_target
 
-    def _proposed_delta_for_action(self, state: MotivationalState, action: Action,) -> np.ndarray:
+    def _proposed_delta_for_action(
+        self,
+        state: MotivationalState,
+        action: Action,
+        feedback: Any = None,
+    ) -> np.ndarray:
         """
         Use profile-derived MAGUS Delta G when the decision layer exposes it.
         """
         if hasattr(self.decision, "propose_delta_g"):
-            return self.decision.propose_delta_g(state, action)
+            return self.decision.propose_delta_g(state, action, feedback)
         return action.delta_g.copy()
 
     def _apply_conservative_fallback(self, current_state: MotivationalState, next_state: MotivationalState) -> MotivationalState:
@@ -336,16 +353,26 @@ class MetaMoPseudoBimonad:
         """
         Measures the First Principle: Modular Appraisal-Decision Interface.
         """
+        goal_change_feedback = self._goal_change_feedback(state, stimulus)
+
         # Path 1: Appraise then Decide -> stabilized D(Psi(X))
         decision_state_1 = self._decision_context(state, stimulus)
-        action_1, delta_g_1 = self.decision.decide(decision_state_1, candidates)
+        action_1, delta_g_1 = self.decision.decide(
+            decision_state_1,
+            candidates,
+            feedback=goal_change_feedback,
+        )
         final_state_1 = self._state_from_delta(decision_state_1, delta_g_1)
-        
+
         # Path 2: Decide then Appraise -> stabilized Psi(D(X))
-        action_2, delta_g_2 = self.decision.decide(state, candidates)
+        action_2, delta_g_2 = self.decision.decide(
+            state,
+            candidates,
+            feedback=goal_change_feedback,
+        )
         decided_state_2 = self._state_from_delta(state, delta_g_2)
         final_state_2 = self._decision_context(decided_state_2, stimulus)
-        
+
         # Calculate the controlled distortion distance.
         distortion = final_state_1.distance_to(final_state_2)
 
@@ -403,7 +430,7 @@ class MetaMoPseudoBimonad:
         Validates Principle 3 with the configured coherence tolerance.
         """
         return self.measure_parallel_compositionality(state_a, state_b, stimulus, candidates).holds
-    
+
     def parallel_merge(self, state_a: MotivationalState, state_b: MotivationalState, coherence_correction: float = 0.05) -> MotivationalState:
         """
         Implements Principle 3: Parallel Motivational Compositionality.

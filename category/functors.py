@@ -89,7 +89,12 @@ class DecisionMonad(ABC):
         pass
 
     @abstractmethod
-    def decide(self, state: MotivationalState, candidates: List[Action]) -> Tuple[Action, np.ndarray]:
+    def decide(
+        self,
+        state: MotivationalState,
+        candidates: List[Action],
+        feedback: Any = None,
+    ) -> Tuple[Action, np.ndarray]:
         """
         The endofunctor application.
         Scores each candidate action under the updated goals and modulators.
@@ -192,7 +197,7 @@ class TranslationFunctor:
     ) -> float:
         """
         Measures how much state is lost by translating A -> B -> A.
-        A low value is evidence for reciprocal, not merely one-way, simulation.
+        A low value supports reciprocal, not merely one-way, simulation.
         """
         translated = self.simulate_peer(state_a)
         reconstructed = inverse_translation.simulate_peer(translated)

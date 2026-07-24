@@ -1,10 +1,11 @@
 from dataclasses import dataclass, field
-from typing import Mapping
+from typing import Any, Mapping
 
 import numpy as np
 
 from core.schema import MotivationSchema
 from core.state import Action, MotivationalState
+from magus.goal_change import DefaultGoalChangeCalculator
 
 
 def sigmoid(x: float) -> float:
@@ -26,10 +27,6 @@ def same_coordinate_layout(left: MotivationSchema, right: MotivationSchema) -> b
 class DecisionProfile:
     """
     Application-specific MAGUS decision semantics.
-
-    The generic MAGUS decision monad owns the default weighted-additive DS
-    formula. A profile supplies coordinate meanings, modulator couplings,
-    compatibility factors, and anti-goal penalty weights.
     """
 
     name: str
@@ -39,6 +36,11 @@ class DecisionProfile:
     transcendence_goal_names: tuple[str, ...] = ()
     balanced_goal_names: tuple[str, ...] = ()
     anti_goal_penalty_weights: Mapping[str, float] = field(default_factory=dict)
+    overgoal_target_features: Mapping[str, str] = field(default_factory=dict)
+    overgoal_delta_scale: float = 0.02
+    delta_scale: float = 0.05
+    candidate_delta_weight: float = 0.0
+    max_goal_delta: float = 0.1
 
     def validate(self, state: MotivationalState, candidate: Action) -> None:
         if not same_coordinate_layout(state.schema, self.schema):
@@ -106,12 +108,7 @@ class DecisionProfile:
 
     def anti_goal_penalty(self, state: MotivationalState, candidate: Action) -> float:
         """
-        Sum lambda_{a_j} * a_j * corr_{a_j}(a) over anti-goal coordinates.
-
-        Anti-goal correlations are interpreted as activation pressure, so the
-        default clips negative values to zero instead of treating them as reward.
-        Applications can override this method if they need signed anti-goal
-        correlations.
+        Compute the penalty for selecting an action that activates anti-goals.
         """
         penalty = 0.0
         for goal_idx in self.anti_goal_indices():
@@ -129,13 +126,7 @@ class DecisionProfile:
         lambda_trans: float,
     ) -> float:
         """
-        Default MAGUS decision score:
-
-        DS(a) =
-            f(g_i, M_k, MIC)
-            - lambda_Ind g_over^Ind
-            + lambda_Trans g_over^Trans
-            - anti-goal penalty
+        Default MAGUS decision score
         """
         g_ind = state.goal(self.schema.goals.individuation_name)
         g_trans = state.goal(self.schema.goals.transcendence_name)
@@ -150,6 +141,57 @@ class DecisionProfile:
             - self.anti_goal_penalty(state, candidate)
         )
 
+    def goal_update_value(
+        self,
+        goal_idx: int,
+        state: MotivationalState,
+        candidate: Action,
+        lambda_ind: float,
+        lambda_trans: float,
+    ) -> float:
+        """
+        Additive update for one primary goal coordinate
+        """
+        g_ind = state.goal(self.schema.goals.individuation_name)
+        g_trans = state.goal(self.schema.goals.transcendence_name)
+        return float(
+            self.f(goal_idx, state, candidate)
+            - (lambda_ind * g_ind)
+            + (lambda_trans * g_trans)
+        )
+
+    def delta_g(
+        self,
+        state: MotivationalState,
+        candidate: Action,
+        lambda_ind: float,
+        lambda_trans: float,
+        feedback: Any = None,
+    ) -> np.ndarray:
+        """
+        Compute the bounded proposed Delta G(a) for the selected candidate.
+        """
+        return DefaultGoalChangeCalculator(self).delta_g(
+            state,
+            candidate,
+            feedback=feedback,
+            lambda_ind=lambda_ind,
+            lambda_trans=lambda_trans,
+        )
+
+    def aggregate(
+        self,
+        delta_g: np.ndarray,
+        state: MotivationalState,
+        candidate: Action,
+        lambda_ind: float,
+        lambda_trans: float,
+    ) -> float:
+        """
+        Application aggregation A(Delta G(a), x).
+        """
+        return self.decision_score(state, candidate, lambda_ind, lambda_trans)
+
     def score_candidate(
         self,
         state: MotivationalState,
@@ -158,4 +200,5 @@ class DecisionProfile:
         lambda_trans: float,
     ) -> float:
         self.validate(state, candidate)
-        return self.decision_score(state, candidate, lambda_ind, lambda_trans)
+        delta = self.delta_g(state, candidate, lambda_ind, lambda_trans)
+        return self.aggregate(delta, state, candidate, lambda_ind, lambda_trans)
