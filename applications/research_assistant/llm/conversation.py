@@ -1,13 +1,17 @@
-import time
-
-from google import genai
-from google.genai import types
-
 from applications.research_assistant.actions import (
     execution_instruction,
     normalize_action_id,
 )
+from applications.research_assistant.llm.providers import generate_text
 from core.state import Action, MotivationalState
+
+
+SYSTEM_INSTRUCTION = (
+    "You are a research assistant guided by the MetaMo cognitive architecture. "
+    "You balance helpfulness, curiosity, and ethics. "
+    "In each turn, you receive a user request and an internal action directive. "
+    "You must answer in a way that follows the internal action directive exactly."
+)
 
 
 class MetaMoChatAssistant:
@@ -15,20 +19,8 @@ class MetaMoChatAssistant:
     Research Assistant conversation layer for executing selected MetaMo actions.
     """
 
-    def __init__(self):
-        self.client = genai.Client()
-        self.chat = self.client.chats.create(
-            model="gemini-3-flash-preview",
-            config=types.GenerateContentConfig(
-                temperature=0.7,
-                system_instruction=(
-                    "You are a research assistant guided by the MetaMo cognitive architecture. "
-                    "You balance helpfulness, curiosity, and ethics. "
-                    "In each turn, you receive a user request and an internal action directive. "
-                    "You must answer in a way that follows the internal action directive exactly."
-                ),
-            ),
-        )
+    def __init__(self, provider: str | None = None):
+        self.provider = provider
 
     def generate_final_response(
         self,
@@ -55,19 +47,9 @@ class MetaMoChatAssistant:
         Respond naturally to the USER MESSAGE, but follow the ACTION INSTRUCTION exactly.
         """
 
-        last_error = None
-        for attempt in range(3):
-            try:
-                response = self.chat.send_message(execution_prompt)
-                return response.text
-            except Exception as error:
-                last_error = error
-                message = str(error).upper()
-                if attempt == 2 or not any(
-                    marker in message
-                    for marker in ["503", "UNAVAILABLE", "429", "RESOURCE_EXHAUSTED", "HIGH DEMAND"]
-                ):
-                    break
-                time.sleep(1.5 * (attempt + 1))
-
-        raise RuntimeError("research assistant response generation failed") from last_error
+        return generate_text(
+            execution_prompt,
+            system_instruction=SYSTEM_INSTRUCTION,
+            temperature=0.7,
+            provider=self.provider,
+        )
