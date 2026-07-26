@@ -56,6 +56,25 @@ class DefaultGoalChangeCalculator(GoalChangeCalculator):
                 target - state.G[goal_idx]
             )
 
+    def _apply_anti_goal_targets(
+        self,
+        delta: np.ndarray,
+        state: MotivationalState,
+        feedback: GoalChangeFeedback | None,
+    ) -> None:
+        if not isinstance(feedback, GoalChangeFeedback):
+            return
+
+        for anti_goal_name in self.profile.schema.goals.anti_goals:
+            feature_name = self.profile.anti_goal_target_features.get(anti_goal_name)
+            if not feature_name or feature_name not in feedback.features:
+                continue
+            goal_idx = self.profile.schema.goal_index(anti_goal_name)
+            target = feedback.numeric(feature_name)
+            delta[goal_idx] = self.profile.anti_goal_delta_scale * (
+                target - state.G[goal_idx]
+            )
+
     def delta_g(
         self,
         state: MotivationalState,
@@ -78,6 +97,7 @@ class DefaultGoalChangeCalculator(GoalChangeCalculator):
             )
 
         self._apply_overgoal_targets(delta, state, feedback)
+        self._apply_anti_goal_targets(delta, state, feedback)
 
         if self.profile.candidate_delta_weight:
             delta += self.profile.candidate_delta_weight * candidate.delta_g

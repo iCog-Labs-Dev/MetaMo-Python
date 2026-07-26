@@ -38,8 +38,10 @@ class DecisionProfile:
     balanced_goal_names: tuple[str, ...] = ()
     anti_goal_penalty_weights: Mapping[str, float] = field(default_factory=dict)
     overgoal_target_features: Mapping[str, str] = field(default_factory=dict)
+    anti_goal_target_features: Mapping[str, str] = field(default_factory=dict)
     compatibility_matrix: GoalCompatibilityMatrix | None = None
     overgoal_delta_scale: float = 0.02
+    anti_goal_delta_scale: float = 0.03
     delta_scale: float = 0.05
     candidate_delta_weight: float = 0.0
     max_goal_delta: float = 0.1
