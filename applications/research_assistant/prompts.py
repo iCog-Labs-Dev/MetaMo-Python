@@ -31,6 +31,21 @@ Document: "{document_text}"
 Use task_intent as one of: {", ".join(TASK_INTENTS)}.
 All numeric values must be floats from 0.0 to 1.0.
 
+Task-intent meanings:
+- answer: provide a careful factual answer, including recognizing when evidence is missing.
+- summarize: summarize supplied source material.
+- compare: explain meaningful differences or tradeoffs between alternatives.
+- clarify: request necessary missing context before giving a substantive answer.
+- explore: develop bounded possibilities while preserving uncertainty.
+- decline: refuse requests that require unethical, unsafe, deceptive, or privacy-violating assistance.
+
+Signal guidance:
+- Do not mark a source-grounded question as clarify merely because the source may lack an answer.
+- Use unsupported_claim_pressure when the user asks for claims not justified by available evidence.
+- Use exploration_need when the request calls for bounded possibility-generation rather than settled facts.
+- Use privacy_pressure when fulfilling the request would expose or infer private identity or personal information.
+- Use unsafe_pressure when fulfilling the request would assist harmful or unethical conduct.
+
 Respond ONLY with a valid JSON object matching this schema:
 {{
   "stimulus": {{

@@ -1,4 +1,5 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from typing import Any
 
 from applications.research_assistant.decision_profile import (
     RESEARCH_ASSISTANT_DECISION_PROFILE,
@@ -24,6 +25,28 @@ from magus.decision import MagusDecision
 from openpsi.appraisal import OpenPsiAppraisal
 
 
+def _perception_snapshot(perception) -> dict[str, Any]:
+    """Flatten perception values for evaluation logging."""
+    stimulus = perception.stimulus
+    signals = perception.signals
+    return {
+        "stimulus_novelty": stimulus.novelty,
+        "stimulus_conduciveness": stimulus.conduciveness,
+        "stimulus_risk": stimulus.risk,
+        "stimulus_effort": stimulus.effort,
+        "task_intent": signals.task_intent,
+        "ambiguity": signals.ambiguity,
+        "citation_need": signals.citation_need,
+        "comparison_need": signals.comparison_need,
+        "summary_need": signals.summary_need,
+        "exploration_need": signals.exploration_need,
+        "unsafe_pressure": signals.unsafe_pressure,
+        "privacy_pressure": signals.privacy_pressure,
+        "unsupported_claim_pressure": signals.unsupported_claim_pressure,
+        "context_loss_pressure": signals.context_loss_pressure,
+    }
+
+
 @dataclass
 class AssistantResponse:
     """Encapsulates the full output of a MetaMo processing cycle for display."""
@@ -39,6 +62,8 @@ class AssistantResponse:
     lax_error: float
     self_model_drift: float
     calibration_adjustments: tuple[str, ...] = ()
+    raw_perception: dict[str, Any] = field(default_factory=dict)
+    calibrated_perception: dict[str, Any] = field(default_factory=dict)
 
 
 def format_response(response: AssistantResponse) -> str:
@@ -80,7 +105,8 @@ class MetaMoEngine:
 
     def process(self, user_input: str) -> AssistantResponse:
         """Run the full MetaMo pipeline on *user_input* and return the result."""
-        calibration = calibrate_perception(get_perception_from_text(user_input))
+        raw_perception = get_perception_from_text(user_input)
+        calibration = calibrate_perception(raw_perception)
         perception = calibration.perception
         merged_current = self.bimonad.parallel_merge(self.state_curiosity, self.state_ethics)
         current_mood = {
@@ -150,6 +176,8 @@ class MetaMoEngine:
             lax_error=float(max(diagnostics_c.lax_error, diagnostics_e.lax_error)),
             self_model_drift=float(max(diagnostics_c.self_model_drift, diagnostics_e.self_model_drift)),
             calibration_adjustments=calibration.adjustments,
+            raw_perception=_perception_snapshot(raw_perception),
+            calibrated_perception=_perception_snapshot(perception),
         )
 
     def process_with_context(self, user_input: str, context: str) -> AssistantResponse:

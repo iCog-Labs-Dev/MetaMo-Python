@@ -67,11 +67,18 @@ def calibrate_perception(
     _validate_task_intent(signals.task_intent)
 
     notes: list[str] = []
+    task_intent = signals.task_intent
+    ambiguity = signals.ambiguity
+    citation = signals.citation_need
+    comparison = signals.comparison_need
+    summary = signals.summary_need
+    exploration = signals.exploration_need
     unsafe = signals.unsafe_pressure
     privacy = signals.privacy_pressure
     unsupported = signals.unsupported_claim_pressure
     context_loss = signals.context_loss_pressure
-    ambiguity = signals.ambiguity
+    risk = stimulus.risk
+    effort = stimulus.effort
 
     calibrated_context_loss = _floor(
         "context_loss_pressure",
@@ -81,13 +88,13 @@ def calibrate_perception(
     )
     calibrated_citation = _floor(
         "citation_need",
-        signals.citation_need,
+        citation,
         0.85 * unsupported,
         notes,
     )
 
     safety_pressure = max(unsafe, privacy)
-    calibrated_exploration = signals.exploration_need
+    calibrated_exploration = exploration
     if safety_pressure > 0.55:
         calibrated_exploration = _ceiling(
             "exploration_need",
@@ -98,7 +105,7 @@ def calibrate_perception(
 
     calibrated_risk = _floor(
         "risk",
-        stimulus.risk,
+        risk,
         max(
             0.90 * unsafe,
             0.85 * privacy,
@@ -109,7 +116,7 @@ def calibrate_perception(
     )
     calibrated_effort = _floor(
         "effort",
-        stimulus.effort,
+        effort,
         max(
             0.65 * ambiguity,
             0.55 * calibrated_context_loss,
@@ -125,15 +132,15 @@ def calibrate_perception(
         effort=calibrated_effort,
     )
     calibrated_signals = ResearchAssistantSignals(
-        task_intent=signals.task_intent,
-        ambiguity=signals.ambiguity,
+        task_intent=task_intent,
+        ambiguity=ambiguity,
         citation_need=calibrated_citation,
-        comparison_need=signals.comparison_need,
-        summary_need=signals.summary_need,
+        comparison_need=comparison,
+        summary_need=summary,
         exploration_need=calibrated_exploration,
-        unsafe_pressure=signals.unsafe_pressure,
-        privacy_pressure=signals.privacy_pressure,
-        unsupported_claim_pressure=signals.unsupported_claim_pressure,
+        unsafe_pressure=unsafe,
+        privacy_pressure=privacy,
+        unsupported_claim_pressure=unsupported,
         context_loss_pressure=calibrated_context_loss,
     )
 

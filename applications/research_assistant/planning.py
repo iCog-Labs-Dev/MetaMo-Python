@@ -22,6 +22,15 @@ INTENT_ACTIONS = {
     "decline": "decline_risky_request",
 }
 
+INTENT_BOOSTS = {
+    "answer": 0.18,
+    "summarize": 0.30,
+    "compare": 0.34,
+    "clarify": 0.34,
+    "explore": 0.45,
+    "decline": 0.45,
+}
+
 
 def _mood_value(current_mood: Mapping[str, Any] | None, name: str) -> float:
     if not current_mood:
@@ -44,7 +53,9 @@ def _delta_vector(values: Mapping[str, float]) -> np.ndarray:
 
 
 def _intent_boost(signals: ResearchAssistantSignals, action_id: str) -> float:
-    return 0.20 if INTENT_ACTIONS.get(signals.task_intent) == action_id else 0.0
+    if INTENT_ACTIONS.get(signals.task_intent) != action_id:
+        return 0.0
+    return INTENT_BOOSTS.get(signals.task_intent, 0.20)
 
 
 def _metadata(
@@ -85,59 +96,59 @@ def build_candidates(
     specs: dict[str, tuple[dict[str, float], float, dict[str, float]]] = {
         "safe_answer": (
             {
-                "help": 0.75 + 0.10 * citation,
-                "curiosity": 0.15 + 0.10 * exploration,
+                "help": 0.78 + 0.10 * citation - 0.25 * safety_pressure,
+                "curiosity": 0.12 + 0.08 * exploration,
                 "novelty": 0.05,
                 "self_improvement": 0.10,
-                "ethics": 0.70 + 0.15 * caution,
+                "ethics": 0.68 + 0.15 * caution - 0.10 * safety_pressure,
                 "sociality": 0.35,
-                "misinformation": 0.10 + 0.30 * unsupported,
-                "unsupported_claim": 0.12 + 0.35 * unsupported,
-                "privacy_violation": 0.05 + 0.30 * privacy,
-                "unsafe_assistance": 0.05 + 0.30 * unsafe,
-                "context_loss": 0.08 + 0.20 * context_loss,
+                "misinformation": 0.08 + 0.30 * unsupported,
+                "unsupported_claim": 0.10 + 0.35 * unsupported,
+                "privacy_violation": 0.05 + 0.55 * privacy,
+                "unsafe_assistance": 0.05 + 0.60 * unsafe,
+                "context_loss": 0.06 + 0.18 * context_loss,
             },
-            0.06 + 0.35 * unsupported + 0.25 * privacy + 0.25 * unsafe,
+            0.05 + 0.32 * unsupported + 0.35 * privacy + 0.35 * unsafe,
             {"help": 0.02, "ethics": 0.01},
         ),
         "guided_explore": (
             {
-                "help": 0.35,
-                "curiosity": 0.75 + 0.20 * exploration + 0.10 * arousal,
-                "novelty": 0.75 + 0.15 * exploration,
+                "help": 0.45 + 0.25 * exploration - 0.20 * safety_pressure,
+                "curiosity": 0.85 + 0.25 * exploration + 0.10 * arousal,
+                "novelty": 0.80 + 0.18 * exploration,
                 "self_improvement": 0.25,
-                "ethics": 0.30,
-                "sociality": 0.35,
-                "misinformation": 0.20 + 0.35 * unsupported,
-                "unsupported_claim": 0.22 + 0.40 * unsupported,
+                "ethics": 0.45 + 0.10 * caution,
+                "sociality": 0.42,
+                "misinformation": 0.12 + 0.30 * unsupported,
+                "unsupported_claim": 0.15 + 0.35 * unsupported,
                 "privacy_violation": 0.10 + 0.35 * privacy,
-                "unsafe_assistance": 0.15 + 0.55 * unsafe,
+                "unsafe_assistance": 0.12 + 0.60 * unsafe,
                 "context_loss": 0.10 + 0.20 * context_loss,
             },
-            0.14 + 0.40 * unsupported + 0.25 * privacy + 0.45 * unsafe,
+            0.10 + 0.35 * unsupported + 0.30 * privacy + 0.50 * unsafe,
             {"curiosity": 0.025, "novelty": 0.025},
         ),
         "ask_clarifying_question": (
             {
-                "help": 0.45 + 0.20 * ambiguity - 0.20 * safety_pressure,
+                "help": 0.20 + 0.45 * ambiguity - 0.25 * safety_pressure,
                 "curiosity": 0.30,
                 "novelty": 0.10,
                 "self_improvement": 0.15,
-                "ethics": 0.70 + 0.15 * ambiguity,
-                "sociality": 0.70 + 0.15 * ambiguity - 0.25 * safety_pressure,
-                "misinformation": -0.20,
-                "unsupported_claim": -0.35,
-                "privacy_violation": -0.20,
-                "unsafe_assistance": -0.10,
-                "context_loss": -0.45,
+                "ethics": 0.45 + 0.35 * ambiguity,
+                "sociality": 0.35 + 0.45 * ambiguity - 0.25 * safety_pressure,
+                "misinformation": -0.10 - 0.25 * ambiguity,
+                "unsupported_claim": -0.15 - 0.35 * ambiguity,
+                "privacy_violation": -0.10 - 0.25 * ambiguity,
+                "unsafe_assistance": -0.05 - 0.20 * ambiguity,
+                "context_loss": -0.15 - 0.45 * ambiguity,
             },
             0.03 + 0.10 * privacy,
             {"help": 0.01, "sociality": 0.02, "context_loss": -0.02},
         ),
         "compare_options": (
             {
-                "help": 0.65 + 0.20 * comparison,
-                "curiosity": 0.40 + 0.10 * comparison,
+                "help": 0.70 + 0.25 * comparison,
+                "curiosity": 0.42 + 0.10 * comparison,
                 "novelty": 0.20,
                 "self_improvement": 0.20,
                 "ethics": 0.55,
@@ -170,16 +181,16 @@ def build_candidates(
         ),
         "decline_risky_request": (
             {
-                "help": 0.20 + 0.25 * safety_pressure,
+                "help": 0.25 + 0.45 * safety_pressure,
                 "curiosity": -0.10,
                 "novelty": -0.10,
                 "self_improvement": 0.05,
-                "ethics": 0.85 + 0.15 * safety_pressure,
-                "sociality": 0.25 + 0.20 * safety_pressure,
-                "misinformation": -0.25,
-                "unsupported_claim": -0.25,
-                "privacy_violation": -0.70,
-                "unsafe_assistance": -0.85,
+                "ethics": 0.95 + 0.20 * safety_pressure,
+                "sociality": 0.20 + 0.25 * safety_pressure,
+                "misinformation": -0.30,
+                "unsupported_claim": -0.30,
+                "privacy_violation": -0.80,
+                "unsafe_assistance": -0.95,
                 "context_loss": 0.05,
             },
             0.02,
