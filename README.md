@@ -41,40 +41,62 @@ No additional dependencies are required beyond NumPy.
 
 ```
 MetaMo-Python/
-|-- core/                    # Core state representations and configuration
-|   |-- __init__.py
-|   |-- config.py            # System parameters, goal/modulator constants
-|   |-- state.py             # MotivationalState, Stimulus, Action dataclasses
+|-- core/                         # Core state representations and configuration
+|   |-- config.py                 # System parameters, goal/modulator constants
+|   |-- state.py                  # MotivationalState, Stimulus, Action dataclasses
+|   |-- engine.py                 # MetaMoEngine: full pipeline orchestration
 |
-|-- category/                # Category theory abstractions
-|   |-- __init__.py
-|   |-- functors.py          # AppraisalComonad and DecisionMonad base classes
-|   |-- bimonad.py           # MetaMoPseudoBimonad implementation
+|-- category/                     # Category theory abstractions
+|   |-- functors.py               # AppraisalComonad, DecisionMonad, TranslationFunctor
+|   |-- bimonad.py                # MetaMoPseudoBimonad implementation
 |
-|-- openpsi/                 # OpenPsi appraisal layer
-|   |-- __init__.py
-|   |-- appraisal.py         # OpenPsiAppraisal comonad implementation
+|-- openpsi/                      # OpenPsi appraisal layer
+|   |-- appraisal.py              # OpenPsiAppraisal comonad implementation
 |
-|-- magus/                   # MAGUS decision layer
-|   |-- __init__.py
-|   |-- decision.py          # MagusDecision monad implementation
+|-- magus/                        # MAGUS decision layer
+|   |-- decision.py               # MagusDecision monad implementation
 |
-|-- llm/                     # LLM integration layer
-|   |-- __init__.py
-|   |-- client.py            # LLM client wrapper
-|   |-- conversation.py      # Conversation and context management
-|   |-- prompts.py           # Prompt templates
-|   |-- parser.py            # Response parsing
+|-- llm/                          # LLM integration layer
+|   |-- client.py                 # Gemini client, stimulus/candidate generation
+|   |-- conversation.py           # Conversational memory and response generation
+|   |-- prompts.py                # Prompt templates for appraisal and planning
+|   |-- parser.py                 # JSON response parsing
+|   |-- action_schema.py          # Action vocabulary and execution instructions
 |
-|-- dynamics/                # Stability and coherence mechanisms
-|   |-- __init__.py
-|   |-- coherence.py        # State blending and self-model drift checking
-|   |-- stability.py        # Safe region detection and contractivity validation
+|-- dynamics/                     # Stability and coherence mechanisms
+|   |-- coherence.py              # State blending and self-model drift checking
+|   |-- stability.py              # Safe region detection and contractivity validation
 |
-|-- applications/            # Example applications
-|   |-- __init__.py
-|   |-- research_assistant.py  # Demo: MetaMo-powered research assistant
+|-- applications/                 # Research assistant application
+|   |-- research_assistant.py     # MetaMo-powered research assistant REPL
+|   |-- papers/                   # Paper ingestion and context management
+|       |-- entities.py           # DocumentChunk, Paper dataclasses
+|       |-- services/             # Extractors, chunker, storage, ingestion, context
 |
+|-- usecase/                      # GridWorld simulation use case
+|   |-- agents/
+|   |   |-- baseline_agent.py     # Tabular Q-learning, no motivational layer
+|   |   |-- metamo_agent.py       # Q-learning + MetaMo motivational regulation
+|   |-- environment/
+|   |   |-- gridworld.py          # 10x10 GridWorld with lava and mineral spawns
+|   |-- metamo/
+|   |   |-- core.py               # Adapter: stimulus, candidates, consensus, transition
+|   |   |-- state.py              # Initial motivational state for the GridWorld agent
+|   |-- metrics/
+|   |   |-- collector.py          # EpisodeLog, MetricsCollector, SRV and recovery metrics
+|   |-- simulation/
+|   |   |-- main.py               # Pygame event loop (entry point)
+|   |   |-- runner.py             # Training loop and episode lifecycle helpers
+|   |   |-- renderer.py           # All pygame drawing: grids, panels, overlays
+|   |   |-- plots.py              # Evaluation plot export
+|   |-- assets/                   # Agent sprite, mineral sprite, sound
+|   |-- plot/                     # Generated evaluation plots (created at runtime)
+|   |-- INTEGRATION.md            # GridWorld integration documentation
+|
+|-- setup.sh                      # Setup script for Linux/macOS
+|-- setup.ps1                     # Setup script for Windows
+|-- .env.example                  # Environment variable template
+|-- requirements.txt
 |-- README.md
 |-- LICENSE
 ```
