@@ -1,9 +1,37 @@
 import time
 
-from google import genai
-from google.genai import types
 from core.state import Action, MotivationalState
-from llm.action_schema import execution_instruction, normalize_action_id
+from core.actions import execution_instruction, normalize_action_id
+from dotenv import load_dotenv
+
+RETRYABLE_MARKERS = ("503", "UNAVAILABLE", "429", "RESOURCE_EXHAUSTED", "HIGH DEMAND")
+
+
+def _is_retryable(error: Exception) -> bool:
+    message = str(error).upper()
+    return any(marker in message for marker in RETRYABLE_MARKERS)
+
+
+def _create_client_and_chat():
+    load_dotenv()
+    from google import genai
+    from google.genai import types
+
+    client = genai.Client()
+    chat = client.chats.create(
+        model="gemini-3-flash-preview",
+        config=types.GenerateContentConfig(
+            temperature=0.7,
+            system_instruction=(
+                "You are a research assistant guided by the MetaMo cognitive architecture. "
+                "You balance helpfulness, curiosity, and ethics. "
+                "In each turn, you receive a user request and an internal action directive. "
+                "You must answer in a way that follows the internal action directive exactly."
+            ),
+        ),
+    )
+    return client, chat
+
 
 class MetaMoChatAssistant:
     """
@@ -11,20 +39,8 @@ class MetaMoChatAssistant:
     Keeps the internal MetaMo math completely separate from the user-facing chat.
     """
     def __init__(self):
-        # Initialize the Gemini client
-        self.client = genai.Client()
-        self.chat = self.client.chats.create(
-            model='gemini-3-flash-preview',
-            config=types.GenerateContentConfig(
-                temperature=0.7,
-                system_instruction=(
-                    "You are a research assistant guided by the MetaMo cognitive architecture. "
-                    "You balance helpfulness, curiosity, and ethics. "
-                    "In each turn, you receive a user request and an internal action directive. "
-                    "You must answer in a way that follows the internal action directive exactly."
-                ),
-            ),
-        )
+        self.client = None
+        self.chat = None
 
     def generate_final_response(self, user_text: str, chosen_action: Action, current_state: MotivationalState) -> str:
         """
@@ -46,26 +62,15 @@ class MetaMoChatAssistant:
         Respond naturally to the USER MESSAGE, but follow the ACTION INSTRUCTION exactly.
         """
 
-        last_error = None
         for attempt in range(3):
             try:
+                if self.chat is None:
+                    self.client, self.chat = _create_client_and_chat()
                 response = self.chat.send_message(execution_prompt)
                 return response.text
             except Exception as error:
-                last_error = error
-                message = str(error).upper()
-                if attempt == 2 or not any(marker in message for marker in ["503", "UNAVAILABLE", "429", "RESOURCE_EXHAUSTED", "HIGH DEMAND"]):
-                    break
+                self.client = None
+                self.chat = None
+                if attempt == 2 or not _is_retryable(error):
+                    raise
                 time.sleep(1.5 * (attempt + 1))
-
-        if action_id == "ask_clarifying_question":
-            return "I need one short clarification before I answer: what part do you want me to focus on?"
-        if action_id == "compare_options":
-            return "I cannot reach the external response model right now, but I would compare the main options and explain their tradeoffs."
-        if action_id == "summarize_source":
-            return "I cannot reach the external response model right now, but I would give a careful summary of the source."
-        if action_id == "decline_risky_request":
-            return "I cannot help with a risky request, but I can help with a safer alternative."
-        if action_id == "guided_explore":
-            return "I cannot reach the external response model right now, but I would give a creative, clearly qualified exploration."
-        return "I cannot reach the external response model right now, but I would give a careful, grounded answer."
