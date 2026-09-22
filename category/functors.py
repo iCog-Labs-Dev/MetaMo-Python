@@ -6,6 +6,7 @@ import numpy as np
 from category.simulation import ReciprocalSimulationResult
 from core.schema import MotivationSchema
 from core.state import MotivationalState, Action
+from core.decision import DecisionResult
 
 TransitionFunction = Callable[
     [MotivationalState, Any, List[Action]],
@@ -94,11 +95,11 @@ class DecisionMonad(ABC):
         state: MotivationalState,
         candidates: List[Action],
         feedback: Any = None,
-    ) -> Tuple[Action, np.ndarray]:
+    ) -> DecisionResult | Tuple[Action, np.ndarray]:
         """
         The endofunctor application.
         Scores each candidate action under the updated goals and modulators.
-        Returns the chosen action and the proposed goal update \Delta G.
+        Returns the chosen action, its proposed goal update, and score evidence.
         The composite operator F = D o ψ is responsible for turning this proposal into
         the finalized next motivational state.
         """

@@ -29,6 +29,10 @@ class MetaMoDiagnostics:
     self_model_drift_holds: bool
     blend_alpha: float
     base_blend_alpha: float
+    laws_evaluated: bool = True
+    law_correction_delta: float = 0.0
+    chosen_score: float = 0.0
+    candidate_count: int = 0
 
 
 @dataclass(frozen=True)
@@ -113,7 +117,11 @@ class MetaMoDiagnosticsHistory:
                 law_violation_rate=0.0,
             )
 
-        lax_errors = np.array([r.lax_error for r in self.records], dtype=float)
+        audited_records = [r for r in self.records if r.laws_evaluated]
+        lax_errors = np.array(
+            [r.lax_error for r in audited_records],
+            dtype=float,
+        )
         projection_deltas = np.array([r.projection_delta for r in self.records], dtype=float)
         boundary_pressures = np.array([r.boundary_pressure_final for r in self.records], dtype=float)
         self_model_drifts = np.array([r.self_model_drift for r in self.records], dtype=float)
@@ -124,15 +132,15 @@ class MetaMoDiagnosticsHistory:
                 (not r.lax_holds)
                 or (not r.contractive_holds)
                 or (not r.self_model_drift_holds)
-                for r in self.records
+                for r in audited_records
             ],
             dtype=float,
         )
 
         return MetaMoDiagnosticsSummary(
             count=len(self.records),
-            max_lax_error=float(np.max(lax_errors)),
-            mean_lax_error=float(np.mean(lax_errors)),
+            max_lax_error=float(np.max(lax_errors)) if lax_errors.size else 0.0,
+            mean_lax_error=float(np.mean(lax_errors)) if lax_errors.size else 0.0,
             max_projection_delta=float(np.max(projection_deltas)),
             mean_projection_delta=float(np.mean(projection_deltas)),
             max_boundary_pressure=float(np.max(boundary_pressures)),
@@ -142,5 +150,5 @@ class MetaMoDiagnosticsHistory:
             max_state_drift=float(np.max(state_drifts)),
             mean_state_drift=float(np.mean(state_drifts)),
             safe_region_violation_rate=float(np.mean(safe_violations)),
-            law_violation_rate=float(np.mean(law_violations)),
+            law_violation_rate=float(np.mean(law_violations)) if law_violations.size else 0.0,
         )

@@ -1,4 +1,4 @@
-from typing import Any, List, Tuple
+from typing import Any, List
 
 import numpy as np
 
@@ -7,6 +7,7 @@ from core.config import LAMBDA_IND, LAMBDA_TRANS
 from core.state import Action, MotivationalState
 from magus.goal_change import DefaultGoalChangeCalculator, GoalChangeCalculator
 from magus.profile import DecisionProfile
+from core.decision import CandidateScoreBreakdown, DecisionResult
 
 
 class MagusDecision(DecisionMonad):
@@ -35,16 +36,40 @@ class MagusDecision(DecisionMonad):
         """
         return state
 
-    def score_candidate(self, state: MotivationalState, candidate: Action) -> float:
+    def score_candidate(
+        self,
+        state: MotivationalState,
+        candidate: Action,
+        feedback: Any = None,
+    ) -> float:
         """
         Score a single candidate action under the current motivational state.
         """
-        return self.profile.score_candidate(
-            state=state,
-            candidate=candidate,
-            lambda_ind=LAMBDA_IND,
-            lambda_trans=LAMBDA_TRANS,
+        delta = self.propose_delta_g(state, candidate, feedback)
+        return self.profile.score_breakdown(
+            state,
+            candidate,
+            delta,
+            LAMBDA_IND,
+            LAMBDA_TRANS,
+        ).total_score
+
+    def evaluate_candidate(
+        self,
+        state: MotivationalState,
+        candidate: Action,
+        feedback: Any = None,
+    ) -> tuple[np.ndarray, CandidateScoreBreakdown]:
+        """Compute a candidate update and score it once."""
+        delta = self.propose_delta_g(state, candidate, feedback)
+        breakdown = self.profile.score_breakdown(
+            state,
+            candidate,
+            delta,
+            LAMBDA_IND,
+            LAMBDA_TRANS,
         )
+        return delta, breakdown
 
     def propose_delta_g(
         self,
@@ -68,7 +93,7 @@ class MagusDecision(DecisionMonad):
         state: MotivationalState,
         candidates: List[Action],
         feedback: Any = None,
-    ) -> Tuple[Action, np.ndarray]:
+    ) -> DecisionResult:
         """
         Scores each candidate action and returns the selected action together
         with its proposed goal update Delta G.
@@ -78,13 +103,24 @@ class MagusDecision(DecisionMonad):
 
         best_action = None
         best_delta_g = None
-        best_score = -float("inf")
+        best_breakdown = None
+        candidate_scores = []
 
         for candidate in candidates:
-            total_score = self.score_candidate(state, candidate)
-            if total_score > best_score:
-                best_score = total_score
+            delta_g, breakdown = self.evaluate_candidate(
+                state,
+                candidate,
+                feedback,
+            )
+            candidate_scores.append(breakdown)
+            if best_breakdown is None or breakdown.total_score > best_breakdown.total_score:
                 best_action = candidate
-                best_delta_g = self.propose_delta_g(state, candidate, feedback)
+                best_delta_g = delta_g
+                best_breakdown = breakdown
 
-        return best_action, best_delta_g.copy()
+        return DecisionResult(
+            action=best_action,
+            proposed_delta_g=best_delta_g.copy(),
+            chosen_score=best_breakdown,
+            candidate_scores=tuple(candidate_scores),
+        )
