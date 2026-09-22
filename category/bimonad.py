@@ -1,6 +1,7 @@
 from typing import Any, List, Tuple
 import numpy as np
 from dataclasses import dataclass
+from core.decision import DecisionResult
 from core.state import MotivationalState, Action
 from core.config import (
     LAX_DISTRIBUTIVE_DELTA,
@@ -12,7 +13,7 @@ from category.diagnostics import (
     MetaMoDiagnosticsSummary,
 )
 from category.functors import AppraisalComonad, DecisionMonad
-from category.laws import StateLawCheckResult
+from category.laws import LawMode, RuntimeLawPolicy, StateLawCheckResult
 from category.merge import DefaultParallelMergePolicy
 from dynamics.coherence import DefaultCoherencePolicy
 from dynamics.stability import (
@@ -29,6 +30,27 @@ class TransitionComputation:
     action: Action
     state: MotivationalState
     projection_delta: float
+    law_correction_delta: float = 0.0
+
+
+@dataclass(frozen=True)
+class TransitionTrace:
+    """Single-pass evidence for one appraisal and decision transition."""
+
+    source_state: MotivationalState
+    appraised_state: MotivationalState
+    decision_state: MotivationalState
+    goal_change_feedback: Any
+    decision_result: DecisionResult
+    proposed_delta_g: np.ndarray
+    damped_delta_g: np.ndarray
+    unprojected_state: MotivationalState
+    projected_state: MotivationalState
+    projection_delta: float
+
+    @property
+    def action(self) -> Action:
+        return self.decision_result.action
 
 
 class MetaMoPseudoBimonad:
@@ -43,42 +65,103 @@ class MetaMoPseudoBimonad:
         stability_policy=None,
         coherence_policy=None,
         merge_policy=None,
+        law_policy: RuntimeLawPolicy | None = None,
     ):
         self.appraisal = appraisal
         self.decision = decision
         self.stability_policy = stability_policy or DefaultStabilityPolicy()
         self.coherence_policy = coherence_policy or DefaultCoherencePolicy()
         self.merge_policy = merge_policy or DefaultParallelMergePolicy()
+        self.law_policy = law_policy or RuntimeLawPolicy()
         self.diagnostics_history = MetaMoDiagnosticsHistory()
+
+    def _compute_transition_trace(
+        self,
+        state: MotivationalState,
+        stimulus: Any,
+        candidates: List[Action],
+    ) -> TransitionTrace:
+        """Run the appraisal and decision path exactly once."""
+        if hasattr(self.appraisal, "appraise_with_feedback"):
+            appraised_state, goal_change_feedback = (
+                self.appraisal.appraise_with_feedback(state, stimulus)
+            )
+        else:
+            goal_change_feedback = self._goal_change_feedback(state, stimulus)
+            appraised_state = self.appraisal.appraise(state, stimulus)
+        decision_state = self.stability_policy.raise_boundary_caution(appraised_state)
+        raw_result = self.decision.decide(
+            decision_state,
+            candidates,
+            feedback=goal_change_feedback,
+        )
+        if isinstance(raw_result, DecisionResult):
+            decision_result = raw_result
+        else:
+            action, proposed_delta_g = raw_result
+            # Compatibility for third-party decision monads using the old tuple API.
+            from core.decision import CandidateScoreBreakdown
+
+            empty_score = CandidateScoreBreakdown(
+                action_id=action.id,
+                primary_goal_contributions={},
+                anti_goal_penalties={},
+                individuation_adjustment=0.0,
+                transcendence_adjustment=0.0,
+                expected_goal_change=0.0,
+                total_score=0.0,
+            )
+            decision_result = DecisionResult(
+                action=action,
+                proposed_delta_g=np.asarray(proposed_delta_g, dtype=float),
+                chosen_score=empty_score,
+                candidate_scores=(empty_score,),
+            )
+
+        proposed_delta_g = decision_result.proposed_delta_g.copy()
+        damped_delta_g = self.stability_policy.apply_homeostatic_damping(
+            decision_state,
+            proposed_delta_g,
+        )
+        unprojected_state = MotivationalState(
+            G=np.clip(decision_state.G + damped_delta_g, 0.0, 1.0),
+            M=decision_state.M.copy(),
+            schema=decision_state.schema,
+        )
+        projected_state = self.stability_policy.project_to_safe_region(
+            unprojected_state
+        )
+        return TransitionTrace(
+            source_state=state,
+            appraised_state=appraised_state,
+            decision_state=decision_state,
+            goal_change_feedback=goal_change_feedback,
+            decision_result=decision_result,
+            proposed_delta_g=proposed_delta_g,
+            damped_delta_g=damped_delta_g,
+            unprojected_state=unprojected_state,
+            projected_state=projected_state,
+            projection_delta=unprojected_state.distance_to(projected_state),
+        )
+
+    def compute_transition_trace(
+        self,
+        state: MotivationalState,
+        stimulus: Any,
+        candidates: List[Action],
+    ) -> TransitionTrace:
+        """Public single-pass transition API for inspection and replay."""
+        return self._compute_transition_trace(state, stimulus, candidates)
 
     def _compute_transition_details(self, state: MotivationalState, stimulus: Any, candidates: List[Action]) -> TransitionComputation:
         """
         Compute one appraisal/decision transition before runtime validation.
         """
-        # 1. Appraise - Update modulators based on stimulus.
-        goal_change_feedback = self._goal_change_feedback(state, stimulus)
-        appraised_state = self.appraisal.appraise(state, stimulus)
-        appraised_state = self.stability_policy.raise_boundary_caution(appraised_state)
-
-        # 2. Decide - Score candidates and update goals.
-        chosen_action, proposed_delta_g = self.decision.decide(
-            appraised_state,
-            candidates,
-            feedback=goal_change_feedback,
-        )
-
-        damped_delta_g = self.stability_policy.apply_homeostatic_damping(appraised_state, proposed_delta_g)
-        next_state = MotivationalState(
-            G=np.clip(appraised_state.G + damped_delta_g, 0.0, 1.0),
-            M=appraised_state.M.copy(),
-            schema=appraised_state.schema,
-        )
-        projected_state = self.stability_policy.project_to_safe_region(next_state)
-
+        trace = self._compute_transition_trace(state, stimulus, candidates)
         return TransitionComputation(
-            action=chosen_action,
-            state=projected_state,
-            projection_delta=next_state.distance_to(projected_state),
+            action=trace.action,
+            state=trace.projected_state,
+            projection_delta=trace.projection_delta,
         )
 
     def _compute_transition(self, state: MotivationalState, stimulus: Any, candidates: List[Action]) -> Tuple[Action, MotivationalState]:
@@ -94,31 +177,103 @@ class MetaMoPseudoBimonad:
         stimulus: Any,
         candidates: List[Action],
     ) -> TransitionComputation:
-        computation = self._compute_transition_details(state, stimulus, candidates)
-        next_state = computation.state
-        projection_delta = computation.projection_delta
-        reference_state = self._local_reference_state(state, next_state)
-
-        if not self.check_lax_distributive_law(state, stimulus, candidates):
-            fallback_state = self._apply_conservative_fallback(state, next_state)
-            projection_delta += next_state.distance_to(fallback_state)
-            next_state = fallback_state
-
-        if not self.stability_policy.check_contractive_update_law(self, state, reference_state, stimulus, candidates):
-            fallback_state = self._apply_conservative_fallback(state, next_state)
-            projection_delta += next_state.distance_to(fallback_state)
-            next_state = fallback_state
-
-        if not self.stability_policy.is_in_safe_region(next_state):
-            fallback_state = self._apply_conservative_fallback(state, next_state)
-            projection_delta += next_state.distance_to(fallback_state)
-            next_state = fallback_state
-
-        return TransitionComputation(
-            action=computation.action,
-            state=next_state,
-            projection_delta=projection_delta,
+        trace = self._compute_transition_trace(state, stimulus, candidates)
+        next_state, law_correction_delta, _, _ = self._audit_and_enforce(
+            state,
+            stimulus,
+            candidates,
+            trace,
         )
+        return TransitionComputation(
+            action=trace.action,
+            state=next_state,
+            projection_delta=trace.projection_delta,
+            law_correction_delta=law_correction_delta,
+        )
+
+    def _unevaluated_law_result(
+        self,
+        principle: str,
+        state: MotivationalState,
+    ) -> StateLawCheckResult:
+        return StateLawCheckResult(
+            principle=principle,
+            left_state=state,
+            right_state=state,
+            error=0.0,
+            tolerance=0.0,
+            holds=True,
+            evaluated=False,
+        )
+
+    def _audit_and_enforce(
+        self,
+        state: MotivationalState,
+        stimulus: Any,
+        candidates: List[Action],
+        trace: TransitionTrace,
+    ) -> tuple[MotivationalState, float, StateLawCheckResult, bool]:
+        """Audit approximate laws and enforce only explicitly configured ones."""
+        target_state = trace.projected_state
+        law_correction_delta = 0.0
+
+        if self.law_policy.lax_distributive is LawMode.DISABLED:
+            lax_result = self._unevaluated_law_result(
+                "modular_appraisal_decision_interface",
+                target_state,
+            )
+        else:
+            lax_result = self.measure_lax_distributive_law(
+                state,
+                stimulus,
+                candidates,
+                trace=trace,
+            )
+
+        reference_state = self._local_reference_state(state, target_state)
+        if self.law_policy.contractive is LawMode.DISABLED:
+            contractive_holds = True
+        else:
+            try:
+                contractive_holds = self.stability_policy.check_contractive_update_law(
+                    self,
+                    state,
+                    reference_state,
+                    stimulus,
+                    candidates,
+                    f_x=trace.projected_state,
+                )
+            except TypeError as error:
+                if "f_x" not in str(error):
+                    raise
+                # Compatibility for custom policies using the former signature.
+                contractive_holds = self.stability_policy.check_contractive_update_law(
+                    self,
+                    state,
+                    reference_state,
+                    stimulus,
+                    candidates,
+                )
+
+        should_fallback = (
+            self.law_policy.lax_distributive is LawMode.ENFORCE
+            and not lax_result.holds
+        ) or (
+            self.law_policy.contractive is LawMode.ENFORCE
+            and not contractive_holds
+        )
+        if should_fallback:
+            fallback_state = self._apply_conservative_fallback(state, target_state)
+            law_correction_delta += target_state.distance_to(fallback_state)
+            target_state = fallback_state
+
+        # Safe-region membership is always a hard runtime invariant.
+        if not self.stability_policy.is_in_safe_region(target_state):
+            fallback_state = self._apply_conservative_fallback(state, target_state)
+            law_correction_delta += target_state.distance_to(fallback_state)
+            target_state = fallback_state
+
+        return target_state, law_correction_delta, lax_result, contractive_holds
 
     def target_transition(
         self,
@@ -263,15 +418,26 @@ class MetaMoPseudoBimonad:
 
         By default this returns the incrementally embodied next state required
         by Principle 5. Set embody=False to inspect the stabilized target.
+        This execution path is single-pass; use step_with_diagnostics() when
+        counterfactual law auditing is required.
         """
-        chosen_action, next_state, _ = self.step_with_diagnostics(
-            state,
-            stimulus,
-            candidates,
+        trace = self._compute_transition_trace(state, stimulus, candidates)
+        lax_result = self._unevaluated_law_result(
+            "modular_appraisal_decision_interface",
+            trace.projected_state,
+        )
+        next_state, _ = self._finalize_transition(
+            state=state,
+            trace=trace,
+            target_state=trace.projected_state,
+            lax_result=lax_result,
+            contractive_holds=True,
+            law_correction_delta=0.0,
+            laws_evaluated=False,
             embody=embody,
             record_diagnostics=record_diagnostics,
         )
-        return chosen_action, next_state
+        return trace.action, next_state
 
     def step_with_diagnostics(
         self,
@@ -283,20 +449,43 @@ class MetaMoPseudoBimonad:
     ) -> Tuple[Action, MotivationalState, MetaMoDiagnostics]:
         """
         Executes one full cycle and returns telemetry for the principle checks.
+        The actual transition is computed once and reused as the left side of
+        each audit; counterfactual paths are evaluated separately.
         """
-        lax_result = self.measure_lax_distributive_law(state, stimulus, candidates)
-        target_computation = self._target_transition_details(state, stimulus, candidates)
-        chosen_action = target_computation.action
-        target_state = target_computation.state
-        reference_state = self._local_reference_state(state, target_state)
-        contractive_holds = self.stability_policy.check_contractive_update_law(
-            self,
-            state,
-            reference_state,
-            stimulus,
-            candidates,
+        trace = self._compute_transition_trace(state, stimulus, candidates)
+        target_state, law_correction_delta, lax_result, contractive_holds = (
+            self._audit_and_enforce(state, stimulus, candidates, trace)
         )
+        next_state, diagnostics = self._finalize_transition(
+            state=state,
+            trace=trace,
+            target_state=target_state,
+            lax_result=lax_result,
+            contractive_holds=contractive_holds,
+            law_correction_delta=law_correction_delta,
+            laws_evaluated=(
+                self.law_policy.lax_distributive is not LawMode.DISABLED
+                or self.law_policy.contractive is not LawMode.DISABLED
+            ),
+            embody=embody,
+            record_diagnostics=record_diagnostics,
+        )
+        return trace.action, next_state, diagnostics
 
+    def _finalize_transition(
+        self,
+        *,
+        state: MotivationalState,
+        trace: TransitionTrace,
+        target_state: MotivationalState,
+        lax_result: StateLawCheckResult,
+        contractive_holds: bool,
+        law_correction_delta: float,
+        laws_evaluated: bool,
+        embody: bool,
+        record_diagnostics: bool,
+    ) -> tuple[MotivationalState, MetaMoDiagnostics]:
+        """Apply continuity once and build diagnostics from cached evidence."""
         if embody:
             blend_result = self.coherence_policy.measure_blend(state, target_state)
             next_state = blend_result.state
@@ -309,8 +498,15 @@ class MetaMoPseudoBimonad:
             blend_alpha = 1.0
             base_blend_alpha = 1.0
 
+        # Blending from an initially unsafe state can leave the intermediate
+        # point outside R even when the target is safe. Safety is a hard
+        # invariant, so project the final embodied state as well.
+        if not self.stability_policy.is_in_safe_region(next_state):
+            next_state = self.stability_policy.project_to_safe_region(next_state)
+            drift = self.coherence_policy.measure_self_model_drift(state, next_state)
+
         diagnostics = MetaMoDiagnostics(
-            action_id=chosen_action.id,
+            action_id=trace.action.id,
             lax_error=lax_result.error,
             lax_tolerance=lax_result.tolerance,
             lax_holds=lax_result.holds,
@@ -320,7 +516,7 @@ class MetaMoPseudoBimonad:
             boundary_pressure_before=self.stability_policy.boundary_pressure(state),
             boundary_pressure_target=self.stability_policy.boundary_pressure(target_state),
             boundary_pressure_final=self.stability_policy.boundary_pressure(next_state),
-            projection_delta=target_computation.projection_delta,
+            projection_delta=trace.projection_delta,
             target_distance=state.distance_to(target_state),
             state_drift=drift.state_distance,
             self_model_drift=drift.self_model_distance,
@@ -329,11 +525,15 @@ class MetaMoPseudoBimonad:
             self_model_drift_holds=drift.holds,
             blend_alpha=blend_alpha,
             base_blend_alpha=base_blend_alpha,
+            laws_evaluated=laws_evaluated,
+            law_correction_delta=law_correction_delta,
+            chosen_score=trace.decision_result.chosen_score.total_score,
+            candidate_count=len(trace.decision_result.candidate_scores),
         )
 
         if record_diagnostics:
             self.diagnostics_history.append(diagnostics)
-        return chosen_action, next_state, diagnostics
+        return next_state, diagnostics
 
     def measure_lax_distributive_law(
         self,
@@ -341,40 +541,42 @@ class MetaMoPseudoBimonad:
         stimulus: Any,
         candidates: List[Action],
         tolerance: float = LAX_DISTRIBUTIVE_DELTA,
+        trace: TransitionTrace | None = None,
     ) -> StateLawCheckResult:
         """
         Measures the First Principle: Modular Appraisal-Decision Interface.
         """
-        goal_change_feedback = self._goal_change_feedback(state, stimulus)
+        trace = trace or self._compute_transition_trace(state, stimulus, candidates)
+        goal_change_feedback = trace.goal_change_feedback
 
-        # Path 1: Appraise then Decide -> stabilized D(Psi(X))
-        decision_state_1 = self._decision_context(state, stimulus)
-        action_1, delta_g_1 = self.decision.decide(
-            decision_state_1,
-            candidates,
-            feedback=goal_change_feedback,
-        )
-        final_state_1 = self._state_from_delta(decision_state_1, delta_g_1)
+        # Path 1 reuses the already-computed Appraise -> Decide transition.
+        action_1 = trace.action
+        final_state_1 = trace.projected_state
 
         # Path 2: Decide then Appraise -> stabilized Psi(D(X))
-        action_2, delta_g_2 = self.decision.decide(
+        result_2 = self.decision.decide(
             state,
             candidates,
             feedback=goal_change_feedback,
         )
+        action_2, delta_g_2 = result_2
         decided_state_2 = self._state_from_delta(state, delta_g_2)
         final_state_2 = self._decision_context(decided_state_2, stimulus)
 
         # Calculate the controlled distortion distance.
         distortion = final_state_1.distance_to(final_state_2)
 
+        action_holds = action_1.id == action_2.id
         return StateLawCheckResult(
             principle="modular_appraisal_decision_interface",
             left_state=final_state_1,
             right_state=final_state_2,
             error=distortion,
             tolerance=tolerance,
-            holds=distortion <= tolerance,
+            holds=(distortion <= tolerance) and action_holds,
+            left_action_id=action_1.id,
+            right_action_id=action_2.id,
+            action_holds=action_holds,
         )
 
     def check_lax_distributive_law(self, state: MotivationalState, stimulus: Any, candidates: List[Action]) -> bool:
