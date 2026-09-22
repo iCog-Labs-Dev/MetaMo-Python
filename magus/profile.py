@@ -7,6 +7,7 @@ from core.schema import MotivationSchema
 from core.state import Action, MotivationalState
 from magus.correlation import GoalCompatibilityMatrix
 from magus.goal_change import DefaultGoalChangeCalculator
+from core.decision import CandidateScoreBreakdown
 
 
 def sigmoid(x: float) -> float:
@@ -44,6 +45,7 @@ class DecisionProfile:
     anti_goal_delta_scale: float = 0.03
     delta_scale: float = 0.05
     candidate_delta_weight: float = 0.0
+    expected_goal_change_weight: float = 0.1
     max_goal_delta: float = 0.1
 
     def validate(self, state: MotivationalState, candidate: Action) -> None:
@@ -125,6 +127,95 @@ class DecisionProfile:
             penalty += weight * state.G[goal_idx] * activation
         return float(penalty)
 
+    def action_risk(self, candidate: Action) -> float:
+        """Return a candidate-dependent risk estimate in [0, 1]."""
+        if "risk" in candidate.metadata:
+            return float(np.clip(float(candidate.metadata["risk"]), 0.0, 1.0))
+        ind_idx = self.schema.goal_index(self.schema.goals.individuation_name)
+        ind_alignment = float(np.clip(candidate.goal_correlations[ind_idx], -1.0, 1.0))
+        return (1.0 - ind_alignment) / 2.0
+
+    def action_opportunity(self, candidate: Action) -> float:
+        """Return a candidate-dependent growth opportunity estimate in [0, 1]."""
+        if "opportunity" in candidate.metadata:
+            return float(np.clip(float(candidate.metadata["opportunity"]), 0.0, 1.0))
+
+        indices = [
+            self.schema.goal_index(name)
+            for name in self.transcendence_goal_names
+            if name in self.schema.goal_names
+        ]
+        if indices:
+            return float(np.clip(np.mean([
+                positive_part(candidate.goal_correlations[idx])
+                for idx in indices
+            ]), 0.0, 1.0))
+
+        trans_idx = self.schema.goal_index(self.schema.goals.transcendence_name)
+        trans_alignment = float(np.clip(candidate.goal_correlations[trans_idx], -1.0, 1.0))
+        return (1.0 + trans_alignment) / 2.0
+
+    def expected_goal_change_value(
+        self,
+        state: MotivationalState,
+        delta_g: np.ndarray,
+    ) -> float:
+        """Value expected progress while treating anti-goal growth as harmful."""
+        value = 0.0
+        for idx in range(self.schema.goals.anti_goal_start):
+            value += state.G[idx] * delta_g[idx]
+        for idx in self.anti_goal_indices():
+            value -= state.G[idx] * delta_g[idx]
+        return float(self.expected_goal_change_weight * value)
+
+    def score_breakdown(
+        self,
+        state: MotivationalState,
+        candidate: Action,
+        delta_g: np.ndarray,
+        lambda_ind: float,
+        lambda_trans: float,
+    ) -> CandidateScoreBreakdown:
+        """Return the complete, candidate-dependent MAGUS score."""
+        self.validate(state, candidate)
+        primary = {
+            self.schema.goal_names[idx]: self.f(idx, state, candidate)
+            for idx in self.primary_goal_indices()
+        }
+        anti = {}
+        for idx in self.anti_goal_indices():
+            name = self.schema.goal_names[idx]
+            weight = self.anti_goal_penalty_weights.get(name, 1.0)
+            anti[name] = float(
+                weight
+                * state.G[idx]
+                * positive_part(candidate.goal_correlations[idx])
+            )
+
+        g_ind = state.goal(self.schema.goals.individuation_name)
+        g_trans = state.goal(self.schema.goals.transcendence_name)
+        individuation_adjustment = -lambda_ind * g_ind * self.action_risk(candidate)
+        transcendence_adjustment = (
+            lambda_trans * g_trans * self.action_opportunity(candidate)
+        )
+        expected_change = self.expected_goal_change_value(state, delta_g)
+        total = (
+            sum(primary.values())
+            - sum(anti.values())
+            + individuation_adjustment
+            + transcendence_adjustment
+            + expected_change
+        )
+        return CandidateScoreBreakdown(
+            action_id=candidate.id,
+            primary_goal_contributions=primary,
+            anti_goal_penalties=anti,
+            individuation_adjustment=float(individuation_adjustment),
+            transcendence_adjustment=float(transcendence_adjustment),
+            expected_goal_change=float(expected_change),
+            total_score=float(total),
+        )
+
     def decision_score(
         self,
         state: MotivationalState,
@@ -132,21 +223,11 @@ class DecisionProfile:
         lambda_ind: float,
         lambda_trans: float,
     ) -> float:
-        """
-        Default MAGUS decision score
-        """
-        g_ind = state.goal(self.schema.goals.individuation_name)
-        g_trans = state.goal(self.schema.goals.transcendence_name)
-        primary_score = sum(
-            self.f(goal_idx, state, candidate)
-            for goal_idx in self.primary_goal_indices()
-        )
-        return float(
-            primary_score
-            - (lambda_ind * g_ind)
-            + (lambda_trans * g_trans)
-            - self.anti_goal_penalty(state, candidate)
-        )
+        """Compatibility helper for scoring without external feedback."""
+        delta = self.delta_g(state, candidate, lambda_ind, lambda_trans)
+        return self.score_breakdown(
+            state, candidate, delta, lambda_ind, lambda_trans
+        ).total_score
 
     def goal_update_value(
         self,
@@ -197,7 +278,13 @@ class DecisionProfile:
         """
         Application aggregation A(Delta G(a), x).
         """
-        return self.decision_score(state, candidate, lambda_ind, lambda_trans)
+        return self.score_breakdown(
+            state,
+            candidate,
+            delta_g,
+            lambda_ind,
+            lambda_trans,
+        ).total_score
 
     def score_candidate(
         self,

@@ -12,6 +12,7 @@ from core.config import (
 from core.state import Action
 
 DEFAULT_CAUTION_MODULATOR_NAMES = ("threshold", "securing")
+SAFETY_NUMERIC_TOLERANCE = 1e-12
 
 
 def _individuation_index(state: MotivationalState) -> int:
@@ -44,7 +45,10 @@ def is_in_safe_region(state: MotivationalState) -> bool:
     g_ind = state.G[_individuation_index(state)]
     g_norm = np.linalg.norm(state.G)
     
-    return (g_ind >= THETA_SAFE) and (g_norm <= G_MAX)
+    return (
+        g_ind >= THETA_SAFE - SAFETY_NUMERIC_TOLERANCE
+        and g_norm <= G_MAX + SAFETY_NUMERIC_TOLERANCE
+    )
 
 def boundary_pressure(state: MotivationalState) -> float:
     """
@@ -107,7 +111,8 @@ def check_contractive_update_law(
     x: MotivationalState, 
     y: MotivationalState, 
     stimulus: Any,
-    candidates: List[Action]
+    candidates: List[Action],
+    f_x: Optional[MotivationalState] = None,
 ) -> bool:
     """
     Validates that the pseudo-bimonad update F = D o ψ is contractive near the boundary.
@@ -122,7 +127,9 @@ def check_contractive_update_law(
     dist_initial = x.distance_to(y)
     
     # Apply the F operator to both states
-    _, F_x = bimonad._compute_transition(x, stimulus, candidates)
+    F_x = f_x
+    if F_x is None:
+        _, F_x = bimonad._compute_transition(x, stimulus, candidates)
     _, F_y = bimonad._compute_transition(y, stimulus, candidates)
     
     # Calculate final distance d(F(x), F(y))
@@ -150,7 +157,6 @@ def project_to_safe_region(state: MotivationalState) -> MotivationalState:
     Projects a state back into the designated safe region by restoring the individuation floor
     and shrinking the goal vector if it exceeds the allowed norm.
     """
-    initial_pressure = boundary_pressure(state)
     next_state = state.copy()
     ind_idx = _individuation_index(next_state)
     next_state.G[ind_idx] = max(next_state.G[ind_idx], THETA_SAFE)
@@ -161,13 +167,6 @@ def project_to_safe_region(state: MotivationalState) -> MotivationalState:
     max_other_norm = np.sqrt(max(0.0, G_MAX**2 - next_state.G[ind_idx] ** 2))
     if other_norm > max_other_norm and other_norm > 0.0:
         next_state.G[other_idx] = other_goals * (max_other_norm / other_norm)
-
-    final_pressure = boundary_pressure(next_state)
-    caution_pressure = max(initial_pressure, final_pressure)
-    if caution_pressure > 0.0:
-        caution_boost = 0.1 * caution_pressure
-        for caution_idx in _caution_indices(next_state):
-            next_state.M[caution_idx] = min(1.0, next_state.M[caution_idx] + caution_boost)
 
     return next_state
 
@@ -221,12 +220,15 @@ class DefaultStabilityPolicy:
         y: MotivationalState,
         stimulus: Any,
         candidates: List[Action],
+        f_x: Optional[MotivationalState] = None,
     ) -> bool:
         if not (self.is_in_boundary_band(x) or self.is_in_boundary_band(y)):
             return True
 
         dist_initial = x.distance_to(y)
-        _, F_x = bimonad._compute_transition(x, stimulus, candidates)
+        F_x = f_x
+        if F_x is None:
+            _, F_x = bimonad._compute_transition(x, stimulus, candidates)
         _, F_y = bimonad._compute_transition(y, stimulus, candidates)
         dist_final = F_x.distance_to(F_y)
         return dist_final <= (C_CONTRACT * dist_initial) + EPSILON
@@ -244,7 +246,6 @@ class DefaultStabilityPolicy:
         return delta_g * damping_factor
 
     def project_to_safe_region(self, state: MotivationalState) -> MotivationalState:
-        initial_pressure = self.boundary_pressure(state)
         next_state = state.copy()
         ind_idx = _individuation_index(next_state)
         next_state.G[ind_idx] = max(next_state.G[ind_idx], THETA_SAFE)
@@ -255,12 +256,5 @@ class DefaultStabilityPolicy:
         max_other_norm = np.sqrt(max(0.0, G_MAX**2 - next_state.G[ind_idx] ** 2))
         if other_norm > max_other_norm and other_norm > 0.0:
             next_state.G[other_idx] = other_goals * (max_other_norm / other_norm)
-
-        final_pressure = self.boundary_pressure(next_state)
-        caution_pressure = max(initial_pressure, final_pressure)
-        if caution_pressure > 0.0:
-            caution_boost = 0.1 * caution_pressure
-            for caution_idx in _caution_indices(next_state, self.caution_modulator_names):
-                next_state.M[caution_idx] = min(1.0, next_state.M[caution_idx] + caution_boost)
 
         return next_state
