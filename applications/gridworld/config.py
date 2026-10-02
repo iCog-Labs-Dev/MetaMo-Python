@@ -1,0 +1,27 @@
+GRID_SIZE = 10
+MAX_STEPS = 50
+MAX_MANHATTAN_DISTANCE = 2 * (GRID_SIZE - 1)
+
+ACTION_IDS = ("UP", "DOWN", "LEFT", "RIGHT")
+ACTION_DELTAS = ((-1, 0), (1, 0), (0, -1), (0, 1))
+
+AGENT_START = (0, 0)
+FALLBACK_LAVA_CELLS = ((8, 8), (8, 9), (9, 8), (9, 9))
+LAVA_CELL_COUNT = 4
+MINERAL_SPAWN_BAND = 2
+DANGER_MINERAL_PROBABILITY = 0.55
+
+REWARD_MINERAL = 100.0
+REWARD_LAVA = -15.0
+REWARD_STEP = -0.5
+REWARD_BOUNDARY = -1.0
+
+APPRAISAL_DELTA_SCALE = 0.15
+DEFAULT_EXTERNAL_RISK_WEIGHT = 0.0
+EXTERNAL_RISK_ABLATION_WEIGHT = 4.0
+HAZARD_PRESSURE_BY_DISTANCE = {0: 1.0, 1: 0.75, 2: 0.40, 3: 0.15}
+
+
+def hazard_pressure(distance: int) -> float:
+    """Map distance to the nearest lava cell to a bounded local hazard signal."""
+    return HAZARD_PRESSURE_BY_DISTANCE.get(max(0, int(distance)), 0.0)
