@@ -39,7 +39,6 @@ class MetaMoAgent:
         motivation_weight: float = 6.0,
         risk_weight: float = DEFAULT_EXTERNAL_RISK_WEIGHT,
         exploration_bonus_weight: float = 0.0,
-        appraisal_mode: str = "rule",
         max_distance_bin: int = 4,
         safe_exploration_probability: float = 0.7,
         progress_shaping_weight: float = 8.0,
@@ -71,7 +70,6 @@ class MetaMoAgent:
         self.motivation_weight = motivation_weight
         self.risk_weight = risk_weight
         self.exploration_bonus_weight = exploration_bonus_weight
-        self.appraisal_mode = appraisal_mode
         self.max_distance_bin = max_distance_bin
         self.safe_exploration_probability = safe_exploration_probability
         self.mask_lava_on_exploit = mask_lava_on_exploit
@@ -104,12 +102,7 @@ class MetaMoAgent:
         )
         self.rng = random.Random(seed)
 
-        self.runtime: GridWorldRuntime = make_gridworld_runtime(appraisal_mode)
-        self.neutral_runtime: GridWorldRuntime = (
-            self.runtime
-            if appraisal_mode == "neutral"
-            else make_gridworld_runtime("neutral")
-        )
+        self.runtime: GridWorldRuntime = make_gridworld_runtime()
         self.mot = create_initial_motivational_state()
         self._pending_state: Optional[MotivationalState] = None
         self._pending_action: Optional[Action] = None
@@ -151,10 +144,13 @@ class MetaMoAgent:
         avoid_lava = self.rng.random() < self.safe_exploration_probability
         return self.rng.choice(self._valid_actions(state, avoid_lava=avoid_lava))
 
-    def _argmax_with_random_tie(self, scores: np.ndarray, actions: list[int]) -> int:
+    @staticmethod
+    def _tied_best_actions(scores: np.ndarray, actions: list[int]) -> list[int]:
         max_score = max(scores[action] for action in actions)
-        best = [action for action in actions if np.isclose(scores[action], max_score)]
-        return self.rng.choice(best)
+        return [action for action in actions if np.isclose(scores[action], max_score)]
+
+    def _argmax_with_random_tie(self, scores: np.ndarray, actions: list[int]) -> int:
+        return self.rng.choice(self._tied_best_actions(scores, actions))
 
     @staticmethod
     def _diagnostic_argmax(scores: np.ndarray, actions: list[int]) -> int:
@@ -305,7 +301,6 @@ class MetaMoAgent:
     def select_action(
         self,
         state: dict,
-        record_appraisal_counterfactual: bool = True,
         record_compositionality: bool = False,
     ) -> tuple[int, dict]:
         """Select an action using either legacy addition or composed perspectives."""
@@ -318,18 +313,7 @@ class MetaMoAgent:
             state,
             runtime=self.runtime,
         )
-        if self.appraisal_mode == "neutral" or not record_appraisal_counterfactual:
-            neutral_perspective_scores = perspective_scores
-        else:
-            neutral_perspective_scores = perspective_candidate_scores(
-                self.mot,
-                stimulus,
-                candidates,
-                state,
-                runtime=self.neutral_runtime,
-            )
         mot_scores = perspective_scores.consensus
-        neutral_mot_scores = neutral_perspective_scores.consensus
         risk_estimates = np.array(
             [
                 float(
@@ -349,7 +333,6 @@ class MetaMoAgent:
         risk_penalty = self.risk_weight * self.mot.goal("individuation") * risk_estimates
         common_scores = q_values - risk_penalty + exploration_bonus
         regularized_scores = common_scores + self.motivation_weight * mot_scores
-        neutral_scores = common_scores + self.motivation_weight * neutral_mot_scores
 
         exploit_actions = self._valid_actions(
             state,
@@ -362,18 +345,10 @@ class MetaMoAgent:
         task_scores, safety_scores, branch_disagreement, composed_scores = (
             self._composed_preferences(perspective_scores, exploit_actions)
         )
-        (
-            _,
-            _,
-            _,
-            neutral_composed_scores,
-        ) = self._composed_preferences(neutral_perspective_scores, exploit_actions)
-
         if self.selector_mode == "legacy_additive":
             shortlist = list(eligible_actions)
             effective_q_tolerance = 0.0
             greedy_action = self._diagnostic_argmax(regularized_scores, shortlist)
-            neutral_greedy_action = self._diagnostic_argmax(neutral_scores, shortlist)
             selector_scores = regularized_scores
         else:
             shortlist, effective_q_tolerance = self._q_shortlist(
@@ -382,10 +357,6 @@ class MetaMoAgent:
                 eligible_actions,
             )
             greedy_action = self._diagnostic_argmax(composed_scores, shortlist)
-            neutral_greedy_action = self._diagnostic_argmax(
-                neutral_composed_scores,
-                shortlist,
-            )
             selector_scores = composed_scores
 
         is_exploratory = self.rng.random() < self.epsilon
@@ -447,12 +418,7 @@ class MetaMoAgent:
         self._pending_action = action
 
         alpha = {
-            "appraisal_mode": self.appraisal_mode,
-            "appraisal_counterfactual_recorded": record_appraisal_counterfactual,
-            "appraisal_changed_action": greedy_action != neutral_greedy_action,
-            "appraisal_score_shift": float(np.max(np.abs(mot_scores - neutral_mot_scores))),
             "greedy_action": greedy_action,
-            "neutral_greedy_action": neutral_greedy_action,
             "selector_mode": self.selector_mode,
             "q_greedy_action": q_greedy_action,
             "safe_q_greedy_action": safe_q_greedy_action,

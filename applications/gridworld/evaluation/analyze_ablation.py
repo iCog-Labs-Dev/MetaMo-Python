@@ -41,10 +41,6 @@ CONTRASTS = (
     ("MetaMoComposedSelector", "MetaMoSafetySelector", "Composed-Safety"),
     ("MetaMo", "MetaMoComposedSelector", "HardSafety-Composed"),
     ("MetaMo", "BaselineCompactQ", "Full-Baseline"),
-    ("MetaMoRule", "MetaMoNeutral", "Rule-Neutral"),
-    ("MetaMoRuleNoExternalRisk", "MetaMoRule", "NoRisk-Rule"),
-    ("MetaMoRuleNoExternalRisk", "BaselineCompactQ", "NoRisk-Baseline"),
-    ("MetaMoNeutral", "BaselineCompactQ", "Neutral-Baseline"),
 )
 FACTORIAL_CONTRASTS = (
     (
@@ -63,7 +59,6 @@ METRICS = (
     "lava_rate",
     "path_efficiency",
     "survival_rate",
-    "appraisal_influence_rate",
     "selector_influence_rate",
     "hard_safety_intervention_rate",
     "q_regret",

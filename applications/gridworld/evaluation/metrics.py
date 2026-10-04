@@ -24,8 +24,6 @@ class EpisodeLog:
     env_srv_flags:      list  = field(default_factory=list)   # Baseline: in lava-band proxy
     mot_boundary_flags: list  = field(default_factory=list)   # MetaMo: inside boundary band B_eta
     mot_pressure_log:   list  = field(default_factory=list)   # MetaMo: boundary pressure [0, 1]
-    appraisal_influence_flags: list = field(default_factory=list)
-    appraisal_score_shift_log: list = field(default_factory=list)
     exploration_flags: list = field(default_factory=list)
     risk_penalty_log: list = field(default_factory=list)
     selector_influence_flags: list = field(default_factory=list)
@@ -106,18 +104,6 @@ class EpisodeLog:
         if not self.mot_pressure_log:
             return 0.0
         return float(np.mean(self.mot_pressure_log))
-
-    def appraisal_influence_rate(self) -> float:
-        """Fraction of greedy decisions changed by rule versus neutral appraisal."""
-        if not self.appraisal_influence_flags:
-            return 0.0
-        return float(np.mean(self.appraisal_influence_flags))
-
-    def mean_appraisal_score_shift(self) -> float:
-        """Mean maximum candidate-score change attributable to appraisal."""
-        if not self.appraisal_score_shift_log:
-            return 0.0
-        return float(np.mean(self.appraisal_score_shift_log))
 
     def exploration_rate(self) -> float:
         if not self.exploration_flags:
@@ -431,16 +417,6 @@ class MetricsCollector:
             for e in self.episodes
             if e.mot_boundary_flags
         ]
-        appraisal_influence = [
-            e.appraisal_influence_rate()
-            for e in self.episodes
-            if e.appraisal_influence_flags
-        ]
-        appraisal_score_shift = [
-            e.mean_appraisal_score_shift()
-            for e in self.episodes
-            if e.appraisal_score_shift_log
-        ]
         exploration = [
             e.exploration_rate() for e in self.episodes if e.exploration_flags
         ]
@@ -578,10 +554,6 @@ class MetricsCollector:
             result["mot_pressure"] = self._stat(mot_pressure)
         if mot_boundary_rt:
             result["mot_boundary_recovery_time"] = self._stat(mot_boundary_rt)
-        if appraisal_influence:
-            result["appraisal_influence_rate"] = self._stat(appraisal_influence)
-        if appraisal_score_shift:
-            result["appraisal_score_shift"] = self._stat(appraisal_score_shift)
         if exploration:
             result["exploration_rate"] = self._stat(exploration)
         if risk_penalty:

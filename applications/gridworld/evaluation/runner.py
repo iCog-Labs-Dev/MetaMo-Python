@@ -1,5 +1,5 @@
 """
-Controlled non-visual GridWorld appraisal-ablation runner.
+Controlled non-visual GridWorld evaluation runner.
 
 The default variants share their Q representation, reward shaping, exploration
 policy, valid-action handling, training schedule, and environment seeds.
@@ -17,7 +17,7 @@ from typing import Callable
 
 from applications.gridworld.agents.baseline import BaselineAgent
 from applications.gridworld.agents.metamo import MetaMoAgent
-from applications.gridworld.config import EXTERNAL_RISK_ABLATION_WEIGHT, MAX_STEPS
+from applications.gridworld.config import MAX_STEPS
 from applications.gridworld.environment import GridWorld
 from applications.gridworld.evaluation.metrics import EpisodeLog, MetricsCollector
 from applications.gridworld.runtime import (
@@ -47,11 +47,8 @@ VARIANT_ORDER = {
     "MetaMoTrainMetaMoEval": 6,
     "MetaMoTrainQEval": 7,
     "QTrainMetaMoEval": 8,
-    "MetaMoNeutral": 9,
-    "MetaMoRule": 10,
-    "MetaMoRuleNoExternalRisk": 11,
-    "BaselineCompactQRaw": 12,
-    "BaselineSafetyPriorQ": 13,
+    "BaselineCompactQRaw": 9,
+    "BaselineSafetyPriorQ": 10,
 }
 
 FAIR_LEARNING_CONFIG = {
@@ -130,7 +127,6 @@ def _variant_specs() -> dict[str, VariantSpec]:
             kind="metamo",
             factory=lambda seed: MetaMoAgent(
                 seed=seed,
-                appraisal_mode="rule",
                 selector_mode="composed",
                 hard_safety=True,
                 exploration_bonus_weight=0.0,
@@ -142,7 +138,6 @@ def _variant_specs() -> dict[str, VariantSpec]:
             kind="metamo",
             factory=lambda seed: MetaMoAgent(
                 seed=seed,
-                appraisal_mode="rule",
                 selector_mode="task",
                 hard_safety=False,
                 risk_weight=0.0,
@@ -155,7 +150,6 @@ def _variant_specs() -> dict[str, VariantSpec]:
             kind="metamo",
             factory=lambda seed: MetaMoAgent(
                 seed=seed,
-                appraisal_mode="rule",
                 selector_mode="safety",
                 hard_safety=False,
                 risk_weight=0.0,
@@ -168,47 +162,7 @@ def _variant_specs() -> dict[str, VariantSpec]:
             kind="metamo",
             factory=lambda seed: MetaMoAgent(
                 seed=seed,
-                appraisal_mode="rule",
                 selector_mode="composed",
-                hard_safety=False,
-                risk_weight=0.0,
-                exploration_bonus_weight=0.0,
-                **FAIR_LEARNING_CONFIG,
-            ),
-        ),
-        "MetaMoNeutral": VariantSpec(
-            name="MetaMoNeutral",
-            kind="metamo",
-            factory=lambda seed: MetaMoAgent(
-                seed=seed,
-                appraisal_mode="neutral",
-                selector_mode="legacy_additive",
-                hard_safety=False,
-                risk_weight=EXTERNAL_RISK_ABLATION_WEIGHT,
-                exploration_bonus_weight=0.0,
-                **FAIR_LEARNING_CONFIG,
-            ),
-        ),
-        "MetaMoRule": VariantSpec(
-            name="MetaMoRule",
-            kind="metamo",
-            factory=lambda seed: MetaMoAgent(
-                seed=seed,
-                appraisal_mode="rule",
-                selector_mode="legacy_additive",
-                hard_safety=False,
-                risk_weight=EXTERNAL_RISK_ABLATION_WEIGHT,
-                exploration_bonus_weight=0.0,
-                **FAIR_LEARNING_CONFIG,
-            ),
-        ),
-        "MetaMoRuleNoExternalRisk": VariantSpec(
-            name="MetaMoRuleNoExternalRisk",
-            kind="metamo",
-            factory=lambda seed: MetaMoAgent(
-                seed=seed,
-                appraisal_mode="rule",
-                selector_mode="legacy_additive",
                 hard_safety=False,
                 risk_weight=0.0,
                 exploration_bonus_weight=0.0,
@@ -218,7 +172,6 @@ def _variant_specs() -> dict[str, VariantSpec]:
     }
     withdrawal_factory = lambda seed: MetaMoAgent(
         seed=seed,
-        appraisal_mode="rule",
         selector_mode="composed",
         hard_safety=True,
         exploration_bonus_weight=0.0,
@@ -305,7 +258,6 @@ def _run_episode(
     danger_distance: int,
     danger_mineral_probability: float,
     train: bool,
-    record_appraisal_counterfactual: bool = False,
     audit_compositionality: bool = False,
 ) -> EpisodeLog:
     env = _make_env(env_seed, max_steps, danger_mineral_probability)
@@ -325,9 +277,6 @@ def _run_episode(
         if policy == "metamo":
             action, alpha = agent.select_action(
                 state,
-                record_appraisal_counterfactual=(
-                    not train and record_appraisal_counterfactual
-                ),
                 record_compositionality=(not train and audit_compositionality),
             )
         elif variant.kind == "metamo":
@@ -407,13 +356,6 @@ def _run_episode(
             log.safety_log.append(mot_safety_threshold(agent.mot))
             log.individuation_log.append(agent.mot.goal("individuation"))
             log.transcendence_log.append(agent.mot.goal("transcendence"))
-            if alpha["appraisal_counterfactual_recorded"]:
-                log.appraisal_influence_flags.append(
-                    bool(alpha["appraisal_changed_action"])
-                )
-                log.appraisal_score_shift_log.append(
-                    float(alpha["appraisal_score_shift"])
-                )
             log.exploration_flags.append(bool(alpha["exploratory"]))
             log.risk_penalty_log.append(float(alpha["risk_penalty"]))
             log.selector_influence_flags.append(
@@ -505,7 +447,6 @@ def _evaluate_agent(
     max_steps: int,
     danger_distance: int,
     danger_mineral_probability: float,
-    record_appraisal_counterfactual: bool = False,
     audit_compositionality: bool = True,
 ) -> list[EpisodeLog]:
     logs: list[EpisodeLog] = []
@@ -519,7 +460,6 @@ def _evaluate_agent(
                 danger_distance=danger_distance,
                 danger_mineral_probability=danger_mineral_probability,
                 train=False,
-                record_appraisal_counterfactual=record_appraisal_counterfactual,
                 audit_compositionality=audit_compositionality,
             )
         )
@@ -643,8 +583,6 @@ def _episode_row(
         "env_srv_rate": log.env_srv_rate(),
         "mot_boundary_rate": log.mot_boundary_rate(),
         "mot_pressure": log.mean_mot_pressure(),
-        "appraisal_influence_rate": log.appraisal_influence_rate(),
-        "appraisal_score_shift": log.mean_appraisal_score_shift(),
         "exploration_rate": log.exploration_rate(),
         "risk_penalty": log.mean_risk_penalty(),
         "selector_influence_rate": log.selector_influence_rate(),
@@ -822,9 +760,6 @@ def run(args: argparse.Namespace) -> tuple[list[dict], list[dict]]:
                     max_steps=args.max_steps,
                     danger_distance=args.danger_distance,
                     danger_mineral_probability=danger_probability,
-                    record_appraisal_counterfactual=(
-                        args.record_appraisal_counterfactual
-                    ),
                     audit_compositionality=(not args.no_compositionality_audit),
                 )
                 seed_collector = MetricsCollector(
@@ -904,16 +839,6 @@ def run(args: argparse.Namespace) -> tuple[list[dict], list[dict]]:
                 ),
                 flush=True,
             )
-            if "appraisal_influence_rate" in summary:
-                print(
-                    "  appraisal_influence={:.3f}  score_shift={:.4f}  "
-                    "risk_penalty={:.3f}".format(
-                        summary["appraisal_influence_rate"]["mean"],
-                        summary["appraisal_score_shift"]["mean"],
-                        summary["risk_penalty"]["mean"],
-                    ),
-                    flush=True,
-                )
             if "selector_influence_rate" in summary:
                 print(
                     "  selector_influence={:.3f}  q_regret={:.3f}  "
@@ -958,11 +883,6 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         type=float,
         default=0.0,
         help="evaluation exploration rate; 0 freezes the primary greedy policy",
-    )
-    parser.add_argument(
-        "--record-appraisal-counterfactual",
-        action="store_true",
-        help="also score neutral appraisal on every evaluation step (slower)",
     )
     parser.add_argument(
         "--no-compositionality-audit",

@@ -6,7 +6,6 @@ import numpy as np
 from applications.gridworld.profile import (
     GRIDWORLD_APPRAISAL_PROFILE,
     GRIDWORLD_DECISION_PROFILE,
-    GRIDWORLD_NEUTRAL_APPRAISAL_PROFILE,
     GRIDWORLD_PROFILE,
 )
 from category.bimonad import MetaMoPseudoBimonad
@@ -55,16 +54,11 @@ class GridWorldCompositionalityAudit:
     action_holds: bool
 
 
-def make_gridworld_runtime(appraisal_mode: str = "rule") -> GridWorldRuntime:
-    """Create an isolated rule or neutral-appraisal GridWorld runtime."""
-    if appraisal_mode == "rule":
-        appraisal = OpenPsiAppraisal(profile=GRIDWORLD_APPRAISAL_PROFILE)
-    elif appraisal_mode == "neutral":
-        appraisal = OpenPsiAppraisal(profile=GRIDWORLD_NEUTRAL_APPRAISAL_PROFILE)
-    else:
-        raise ValueError(f"unknown GridWorld appraisal mode: {appraisal_mode}")
+def make_gridworld_runtime() -> GridWorldRuntime:
+    """Create an isolated rule-appraisal GridWorld runtime."""
+    appraisal = OpenPsiAppraisal(profile=GRIDWORLD_APPRAISAL_PROFILE)
     return GridWorldRuntime(
-        name=f"gridworld:{appraisal_mode}",
+        name="gridworld:rule",
         profile=GRIDWORLD_PROFILE,
         appraisal_profile=appraisal.profile,
         decision_profile=GRIDWORLD_DECISION_PROFILE,
@@ -75,7 +69,7 @@ def make_gridworld_runtime(appraisal_mode: str = "rule") -> GridWorldRuntime:
     )
 
 
-RUNTIME = make_gridworld_runtime("rule")
+RUNTIME = make_gridworld_runtime()
 
 
 def get_runtime() -> GridWorldRuntime:
@@ -338,4 +332,3 @@ def transition_for_action_with_diagnostics(
         mot_state, stimulus, selected
     )
     return action, next_state, stimulus, target_state, diagnostics
-

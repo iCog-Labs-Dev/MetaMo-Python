@@ -479,7 +479,6 @@ def run(args: argparse.Namespace) -> dict[str, Path]:
                         max_steps=args.max_steps,
                         danger_distance=args.danger_distance,
                         danger_mineral_probability=danger_probability,
-                        record_appraisal_counterfactual=False,
                         audit_compositionality=False,
                     )
                     checkpoint_seed_rows.append(

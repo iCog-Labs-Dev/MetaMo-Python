@@ -70,12 +70,6 @@ class GridWorldAppraisalProfile(AppraisalProfile):
         )
 
 
-class NeutralGridWorldAppraisalProfile(GridWorldAppraisalProfile):
-    """Frozen appraisal control used to isolate the rule-appraisal effect."""
-
-    def core_modulator_deltas(self, state, features):
-        return {name: 0.0 for name in self.required_modulators}
-
     def goal_change_feedback(self, state, stimulus, features):
         return GoalChangeFeedback()
 
@@ -249,9 +243,6 @@ class GridWorldProfile:
 
 GRIDWORLD_PROFILE = GridWorldProfile()
 GRIDWORLD_APPRAISAL_PROFILE = GridWorldAppraisalProfile(name="gridworld_openpsi")
-GRIDWORLD_NEUTRAL_APPRAISAL_PROFILE = NeutralGridWorldAppraisalProfile(
-    name="gridworld_openpsi_neutral"
-)
 GRIDWORLD_DECISION_PROFILE = DecisionProfile(
     name="gridworld_magus",
     schema=GRIDWORLD_SCHEMA,

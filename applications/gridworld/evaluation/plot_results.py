@@ -29,9 +29,6 @@ VARIANT_ORDER = (
     "MetaMoTrainQEval",
     "QTrainMetaMoEval",
     "MetaMoTrainMetaMoEval",
-    "MetaMoNeutral",
-    "MetaMoRule",
-    "MetaMoRuleNoExternalRisk",
     "BaselineCompactQRaw",
     "BaselineSafetyPriorQ",
 )
@@ -43,9 +40,6 @@ VARIANT_LABELS = {
     "MetaMoTaskSelector": "MetaMo task selector",
     "MetaMoSafetySelector": "MetaMo safety selector",
     "MetaMoComposedSelector": "MetaMo composed selector",
-    "MetaMoNeutral": "MetaMo neutral",
-    "MetaMoRule": "MetaMo rule + risk",
-    "MetaMoRuleNoExternalRisk": "MetaMo legacy additive",
     "QTrainQEval": "Q train / Q eval",
     "MetaMoTrainQEval": "MetaMo train / Q eval",
     "QTrainMetaMoEval": "Q train / MetaMo eval",
@@ -59,9 +53,6 @@ VARIANT_COLORS = {
     "MetaMoTaskSelector": "#0ea5e9",
     "MetaMoSafetySelector": "#dc2626",
     "MetaMoComposedSelector": "#14b8a6",
-    "MetaMoNeutral": "#9333ea",
-    "MetaMoRule": "#ea580c",
-    "MetaMoRuleNoExternalRisk": "#16a34a",
     "QTrainQEval": "#2563eb",
     "MetaMoTrainQEval": "#f59e0b",
     "QTrainMetaMoEval": "#8b5cf6",
@@ -170,10 +161,13 @@ def _metric_values(
     variant: str,
     metric: str,
     scale: float,
-) -> list[tuple[float, float, float]]:
+) -> list[tuple[float, float, float] | None]:
     values = []
     for regime in regimes:
-        row = row_lookup[(regime, variant)]
+        row = row_lookup.get((regime, variant))
+        if row is None:
+            values.append(None)
+            continue
         mean = _float(row, f"{metric}_mean") * scale
         lo = _float(row, f"{metric}_ci95_low") * scale
         hi = _float(row, f"{metric}_ci95_high") * scale
@@ -219,9 +213,16 @@ def _draw_grouped_metric(
     variants = _selected_variants(rows)
     row_lookup = _row_map(rows)
 
-    all_highs = []
-    for variant in variants:
-        all_highs.extend(high for _, _, high in _metric_values(row_lookup, regimes, variant, metric, scale))
+    series = {
+        variant: _metric_values(row_lookup, regimes, variant, metric, scale)
+        for variant in variants
+    }
+    all_highs = [
+        value[2]
+        for values in series.values()
+        for value in values
+        if value is not None
+    ]
     ymax = _nice_max(max(all_highs) * 1.08)
 
     parts.append(_svg_text(px + pw / 2, py + 22, title, 16, "#0f172a", "middle", "700"))
@@ -233,7 +234,10 @@ def _draw_grouped_metric(
         cx = chart_x + group_w * (r_idx + 0.5)
         parts.append(_svg_text(cx, chart_y + chart_h + 28, regime.title(), 12, "#334155"))
         for v_idx, variant in enumerate(variants):
-            mean, lo, hi = _metric_values(row_lookup, regimes, variant, metric, scale)[r_idx]
+            value = series[variant][r_idx]
+            if value is None:
+                continue
+            mean, lo, hi = value
             bx = cx - (len(variants) * bar_w) / 2 + v_idx * bar_w + 2
             by = chart_y + chart_h - (mean / ymax) * chart_h
             bh = chart_y + chart_h - by
@@ -250,7 +254,9 @@ def _draw_grouped_metric(
 
 def save_metric_grid(rows: list[dict], output_dir: Path) -> Path:
     output_path = output_dir / "gridworld_fair_metrics.svg"
-    width, height = 1200, 820
+    variants = _selected_variants(rows)
+    legend_rows = (len(variants) + 2) // 3
+    width, height = 1250, 790 + legend_rows * 27
     panels = (
         (40, 70, 550, 320),
         (620, 70, 550, 320),
@@ -272,12 +278,11 @@ def save_metric_grid(rows: list[dict], output_dir: Path) -> Path:
     for panel, spec in zip(panels, metric_specs):
         _draw_grouped_metric(parts, rows, panel, *spec)
 
-    variants = _selected_variants(rows)
-    legend_x = width / 2 - (len(variants) * 155) / 2
     for idx, variant in enumerate(variants):
-        x = legend_x + idx * 155
-        parts.append(_svg_rect(x, height - 38, 16, 16, VARIANT_COLORS.get(variant, "#334155")))
-        parts.append(_svg_text(x + 24, height - 25, VARIANT_LABELS.get(variant, variant), 13, "#334155", "start"))
+        x = 70 + (idx % 3) * 390
+        y = 780 + (idx // 3) * 27
+        parts.append(_svg_rect(x, y - 12, 16, 16, VARIANT_COLORS.get(variant, "#334155")))
+        parts.append(_svg_text(x + 24, y + 1, VARIANT_LABELS.get(variant, variant), 12, "#334155", "start"))
     parts.append("</svg>")
     output_path.write_text("\n".join(parts), encoding="utf-8")
     return output_path
@@ -285,7 +290,7 @@ def save_metric_grid(rows: list[dict], output_dir: Path) -> Path:
 
 def save_reward_safety_frontier(rows: list[dict], output_dir: Path) -> Path:
     output_path = output_dir / "gridworld_reward_safety_frontier.svg"
-    width, height = 920, 620
+    width, height = 1260, 620
     chart_x, chart_y = 90, 65
     chart_w, chart_h = 720, 450
     regimes = _selected_regimes(rows)
@@ -295,7 +300,9 @@ def save_reward_safety_frontier(rows: list[dict], output_dir: Path) -> Path:
     points = []
     for variant in variants:
         for regime in regimes:
-            row = row_lookup[(regime, variant)]
+            row = row_lookup.get((regime, variant))
+            if row is None:
+                continue
             points.append(
                 (
                     variant,
@@ -344,7 +351,13 @@ def save_reward_safety_frontier(rows: list[dict], output_dir: Path) -> Path:
         path_points = []
         color = VARIANT_COLORS.get(variant, "#334155")
         for regime in regimes:
-            row = row_lookup[(regime, variant)]
+            row = row_lookup.get((regime, variant))
+            if row is None:
+                if len(path_points) > 1:
+                    d = " ".join(f"{x:.1f},{y:.1f}" for x, y in path_points)
+                    parts.append(f'<polyline points="{d}" fill="none" stroke="{color}" stroke-width="2.0"/>')
+                path_points = []
+                continue
             x = sx(_float(row, "unsafe_rate_mean") * 100.0)
             y = sy(_float(row, "total_reward_mean"))
             path_points.append((x, y))
@@ -371,8 +384,8 @@ def save_reward_safety_frontier(rows: list[dict], output_dir: Path) -> Path:
     legend_y = 92
     for idx, variant in enumerate(variants):
         y = legend_y + idx * 28
-        parts.append(_svg_rect(835, y - 12, 16, 16, VARIANT_COLORS.get(variant, "#334155")))
-        parts.append(_svg_text(858, y + 1, VARIANT_LABELS.get(variant, variant), 12, "#334155", "start"))
+        parts.append(_svg_rect(900, y - 12, 16, 16, VARIANT_COLORS.get(variant, "#334155")))
+        parts.append(_svg_text(923, y + 1, VARIANT_LABELS.get(variant, variant), 12, "#334155", "start"))
     parts.append("</svg>")
     output_path.write_text("\n".join(parts), encoding="utf-8")
     return output_path
@@ -390,17 +403,19 @@ def save_improvement_plot(rows: list[dict], output_dir: Path) -> Path | None:
     ):
         baseline_variant = "QTrainQEval"
         reference_variant = "MetaMoTrainMetaMoEval"
-    elif (
-        "MetaMoRuleNoExternalRisk" in variants
-        and "BaselineCompactQ" in variants
-    ):
-        baseline_variant = "BaselineCompactQ"
-        reference_variant = "MetaMoRuleNoExternalRisk"
     else:
         return None
 
-    output_path = output_dir / "gridworld_metamo_improvement.svg"
     row_lookup = _row_map(rows)
+    regimes = [
+        regime for regime in regimes
+        if (regime, baseline_variant) in row_lookup
+        and (regime, reference_variant) in row_lookup
+    ]
+    if not regimes:
+        return None
+
+    output_path = output_dir / "gridworld_metamo_improvement.svg"
     series = {
         "Reward gain": ("#16a34a", []),
         "Lava reduction": ("#0f766e", []),
