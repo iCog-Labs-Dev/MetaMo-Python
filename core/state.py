@@ -76,15 +76,31 @@ class MotivationalState:
         self.M[self.modulator_index(name)] = value
 
 @dataclass
+class Stimulus:
+    """A scalar appraisal stimulus for the MetaMo appraisal layer."""
+
+    novelty: float
+    conduciveness: float
+    risk: float
+    effort: float
+
+    def __post_init__(self) -> None:
+        for field_name in ("novelty", "conduciveness", "risk", "effort"):
+            value = float(getattr(self, field_name))
+            if not np.isfinite(value):
+                raise ValueError(f"{field_name} must be finite")
+            setattr(self, field_name, value)
+
+
+@dataclass
 class Action:
     """
     Represents a candidate action or inference rule evaluated by the Decision Monad (D).
     """
 
     id: str
-    # Measures alignment (corr or rel) with each primary goal.
     goal_correlations: np.ndarray
-    # Expected modification to the goal vector (Delta G) if selected.
+    risk_estimate: float
     delta_g: np.ndarray
     schema: MotivationSchema = DEFAULT_MOTIVATION_SCHEMA
     metadata: Mapping[str, Any] = field(default_factory=dict)
@@ -92,7 +108,10 @@ class Action:
     def __post_init__(self):
         self.goal_correlations = np.asarray(self.goal_correlations, dtype=float)
         self.delta_g = np.asarray(self.delta_g, dtype=float)
+        self.risk_estimate = float(self.risk_estimate)
 
+        if not np.isfinite(self.risk_estimate):
+            raise ValueError("risk_estimate must be finite")
         if self.goal_correlations.ndim != 1:
             raise ValueError("Correlations vector must be one-dimensional")
         if self.delta_g.ndim != 1:
