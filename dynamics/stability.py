@@ -141,7 +141,16 @@ def project_to_safe_region(state: MotivationalState) -> MotivationalState:
     max_other_norm = np.sqrt(max(0.0, G_MAX**2 - next_state.G[G_IND] ** 2))
     if other_norm > max_other_norm and other_norm > 0.0:
         next_state.G[other_idx] = other_goals * (max_other_norm / other_norm)
-
+   
+    # Gradually reinforce safety-related modulators while preventing rapid
+    # saturation under repeated projections. The boost is scaled by the
+    # remaining distance to the upper bound, so reinforcement naturally
+    # diminishes as each modulator approaches 1.
+    # M_next = M + alpha * (1 - M)ᵖ
+    # alpha controls the initial boost; p controls the damping strength.
+    # p=1 gives asymptotic damping, while p>1 provides stronger nonlinear
+    # damping near saturation without changing the accumulation mechanism.
+    
     next_state.M[M_SECURING] += (
         MODULATOR_DAMPING_ALPHA
         * (1.0 - next_state.M[M_SECURING]) ** MODULATOR_DAMPING_POWER
