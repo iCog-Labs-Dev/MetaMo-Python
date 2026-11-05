@@ -20,6 +20,9 @@ ETA_BOUNDARY = (
     0.1  # Distance from the edge that triggers the boundary band (B_eta)[cite: 383].
 )
 
+MODULATOR_DAMPING_ALPHA = 0.1  
+MODULATOR_DAMPING_POWER = 1.0  
+
 ALPHA_0 = 0.1  # Base rate slowed down by individuation[cite: 135].
 BETA_0 = 0.15  # Base rate sped up by transcendence[cite: 135].
 

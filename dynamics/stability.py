@@ -9,7 +9,9 @@ from core.config import (
     C_CONTRACT, 
     EPSILON,
     M_SECURING,
-    M_THRESHOLD
+    M_THRESHOLD,
+    MODULATOR_DAMPING_ALPHA,
+    MODULATOR_DAMPING_POWER,
 )
 from core.state import Stimulus, Action
 
@@ -125,8 +127,12 @@ def project_to_safe_region(state: MotivationalState) -> MotivationalState:
     """
     Projects a state back into the designated safe region by restoring the individuation floor
     and shrinking the goal vector if it exceeds the allowed norm.
+    Already-safe states are copied unchanged to avoid artificial caution growth.
     """
     next_state = state.copy()
+    if is_in_safe_region(state):
+        return next_state
+
     next_state.G[G_IND] = max(next_state.G[G_IND], THETA_SAFE)
 
     other_idx = [idx for idx in range(next_state.G.shape[0]) if idx != G_IND]
@@ -136,6 +142,12 @@ def project_to_safe_region(state: MotivationalState) -> MotivationalState:
     if other_norm > max_other_norm and other_norm > 0.0:
         next_state.G[other_idx] = other_goals * (max_other_norm / other_norm)
 
-    next_state.M[M_SECURING] = min(1.0, next_state.M[M_SECURING] + 0.1)
-    next_state.M[M_THRESHOLD] = min(1.0, next_state.M[M_THRESHOLD] + 0.1)
+    next_state.M[M_SECURING] += (
+        MODULATOR_DAMPING_ALPHA
+        * (1.0 - next_state.M[M_SECURING]) ** MODULATOR_DAMPING_POWER
+    )
+    next_state.M[M_THRESHOLD] += (
+        MODULATOR_DAMPING_ALPHA
+        * (1.0 - next_state.M[M_THRESHOLD]) ** MODULATOR_DAMPING_POWER
+    )
     return next_state
