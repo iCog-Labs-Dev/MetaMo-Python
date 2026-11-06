@@ -19,6 +19,11 @@ EPSILON = 0.05  # Small allowed error margin[cite: 132].
 ETA_BOUNDARY = (
     0.1  # Distance from the edge that triggers the boundary band (B_eta)[cite: 383].
 )
+
+
+ALPHA_0 = 0.1  # Base rate slowed down by individuation[cite: 135].
+BETA_0 = 0.15  # Base rate sped up by transcendence[cite: 135].
+
 # Caution boost applied only when projecting an unsafe state back to safety.
 MODULATOR_DAMPING_ALPHA = 0.1  # Boost strength at M=0; keep within [0, 1].
 MODULATOR_DAMPING_POWER = 1.0  # Keep p >= 1; p=1 gives asymptotic damping, while higher values slow growth more near saturation.
