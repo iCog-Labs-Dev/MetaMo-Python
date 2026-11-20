@@ -92,6 +92,15 @@ class AppraisalProfile(ABC):
     def appraise(self, state: MotivationalState, stimulus: Any) -> MotivationalState:
         self.validate(state.schema)
         extracted_features = self.stimulus_features(state, stimulus)
+        return self.appraise_features(state, extracted_features)
+
+    def appraise_features(
+        self,
+        state: MotivationalState,
+        extracted_features: StimulusFeatures,
+    ) -> MotivationalState:
+        """Apply already-extracted features without interpreting the stimulus again."""
+        self.validate(state.schema)
         next_state = state.copy()
 
         for name, delta in self.core_modulator_deltas(state, extracted_features).items():

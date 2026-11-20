@@ -33,3 +33,14 @@ class OpenPsiAppraisal(AppraisalComonad):
     ) -> GoalChangeFeedback:
         features = self.profile.stimulus_features(state, stimulus)
         return self.profile.goal_change_feedback(state, stimulus, features)
+
+    def appraise_with_feedback(
+        self,
+        state: MotivationalState,
+        stimulus: Any,
+    ) -> tuple[MotivationalState, GoalChangeFeedback]:
+        """Extract application features once for appraisal and goal feedback."""
+        features = self.profile.stimulus_features(state, stimulus)
+        appraised_state = self.profile.appraise_features(state, features)
+        feedback = self.profile.goal_change_feedback(state, stimulus, features)
+        return appraised_state, feedback
