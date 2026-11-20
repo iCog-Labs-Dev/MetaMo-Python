@@ -14,6 +14,13 @@ MIN_CONTEXT_RELEVANCE = 0.15
 MIN_CLARIFICATION_RELEVANCE = 0.03
 TEXT_RELEVANCE_WEIGHT = 0.65
 AFFORDANCE_RELEVANCE_WEIGHT = 0.35
+TASK_INTENT_SATURATION = 0.25
+FALLBACK_ACTION_IDS = ("safe_answer", "ask_clarifying_question")
+STOPWORDS = frozenset({
+    "a", "an", "and", "are", "as", "at", "be", "but", "by", "for", "from", "if", "in",
+    "into", "is", "it", "its", "of", "on", "or", "so", "that", "the", "their", "them",
+    "then", "these", "this", "those", "to", "was", "when", "with",
+})
 
 
 def _stem_token(token: str) -> str:
@@ -24,7 +31,11 @@ def _stem_token(token: str) -> str:
 
 
 def _tokenize(text: str) -> List[str]:
-    return [_stem_token(token) for token in re.findall(r"[a-z']+", text.lower())]
+    return [
+        _stem_token(token)
+        for token in re.findall(r"[a-z']+", text.lower())
+        if token not in STOPWORDS
+    ]
 
 
 def _cosine_similarity(left: List[str], right: List[str]) -> float:
@@ -80,6 +91,19 @@ def _direct_answer_need(stimulus: Stimulus) -> float:
     return float(np.clip(answerable_fit, 0.0, 1.0))
 
 
+def _task_intent(document_tokens: List[str]) -> float:
+    """Strength of the request's wording match to a specific task action."""
+    task_fit = max(
+        (
+            _cosine_similarity(document_tokens, _action_tokens(action_id, spec))
+            for action_id, spec in ACTION_SPECS.items()
+            if spec.mode != "protective" and action_id not in FALLBACK_ACTION_IDS
+        ),
+        default=0.0,
+    )
+    return float(np.clip(task_fit / TASK_INTENT_SATURATION, 0.0, 1.0))
+
+
 def _context_relevance(
     action_id: str,
     stimulus: Stimulus,
@@ -99,7 +123,8 @@ def _context_relevance(
         relevance *= _clarification_need(stimulus)
         return float(np.clip(relevance, MIN_CLARIFICATION_RELEVANCE, 1.0))
     if action_id == "safe_answer":
-        relevance = max(relevance, _direct_answer_need(stimulus))
+        direct_answer_floor = _direct_answer_need(stimulus) * (1.0 - _task_intent(document_tokens))
+        relevance = max(relevance, direct_answer_floor)
 
     return float(np.clip(relevance, MIN_CONTEXT_RELEVANCE, 1.0))
 
