@@ -135,8 +135,10 @@ class MetaMoPseudoBimonad:
         action = self.consensus_action(state_a, state_b, stimulus, candidates)
         context_a = self._decision_context(state_a, stimulus)
         context_b = self._decision_context(state_b, stimulus)
-        target_a = self._state_from_delta(context_a, action.delta_g)
-        target_b = self._state_from_delta(context_b, action.delta_g)
+        _, delta_a = self.decision.decide(context_a, [action])
+        _, delta_b = self.decision.decide(context_b, [action])
+        target_a = self._state_from_delta(context_a, delta_a)
+        target_b = self._state_from_delta(context_b, delta_b)
         merged_target = self.parallel_merge(target_a, target_b)
         return action, merged_target
 
