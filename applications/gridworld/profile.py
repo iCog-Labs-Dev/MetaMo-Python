@@ -70,10 +70,6 @@ class GridWorldAppraisalProfile(AppraisalProfile):
         )
 
 
-    def goal_change_feedback(self, state, stimulus, features):
-        return GoalChangeFeedback()
-
-
 @dataclass(frozen=True)
 class GridWorldProfile:
     """Translate GridWorld state and actions into MetaMo application data."""
