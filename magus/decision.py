@@ -100,11 +100,15 @@ def normalized_growth_signal(candidate: Action) -> float:
 
 def proposed_goal_update(state: MotivationalState, candidate: Action) -> np.ndarray:
     """
-    Derive Delta G from the selected action under the current motivational state.
+    Return Delta G for the selected action under the current motivational state.
 
-    The paper places the goal update inside the MAGUS decision step. Keeping it here
-    prevents fallback candidates from carrying hand-authored update vectors.
+    A candidate-supplied delta_g is used as-is. Otherwise the update is derived inside
+    the MAGUS decision step, as the paper places it, from the candidate's goal
+    correlations and risk.
     """
+    if candidate.delta_g is not None:
+        return np.array(candidate.delta_g, dtype=float)
+
     delta = np.zeros(NUM_GOALS, dtype=float)
     positive_alignment = np.clip(candidate.goal_correlations, 0.0, 1.0)
 
