@@ -418,22 +418,34 @@ class MetaMoPseudoBimonad:
 
         By default this returns the incrementally embodied next state required
         by Principle 5. Set embody=False to inspect the stabilized target.
-        This execution path is single-pass; use step_with_diagnostics() when
-        counterfactual law auditing is required.
+        The default path is single-pass. Explicit ENFORCE policies also run
+        the counterfactual checks needed to apply their corrections.
         """
         trace = self._compute_transition_trace(state, stimulus, candidates)
-        lax_result = self._unevaluated_law_result(
-            "modular_appraisal_decision_interface",
-            trace.projected_state,
+        enforce_laws = (
+            self.law_policy.lax_distributive is LawMode.ENFORCE
+            or self.law_policy.contractive is LawMode.ENFORCE
         )
+        if enforce_laws:
+            target_state, law_correction_delta, lax_result, contractive_holds = (
+                self._audit_and_enforce(state, stimulus, candidates, trace)
+            )
+        else:
+            target_state = trace.projected_state
+            law_correction_delta = 0.0
+            lax_result = self._unevaluated_law_result(
+                "modular_appraisal_decision_interface",
+                target_state,
+            )
+            contractive_holds = True
         next_state, _ = self._finalize_transition(
             state=state,
             trace=trace,
-            target_state=trace.projected_state,
+            target_state=target_state,
             lax_result=lax_result,
-            contractive_holds=True,
-            law_correction_delta=0.0,
-            laws_evaluated=False,
+            contractive_holds=contractive_holds,
+            law_correction_delta=law_correction_delta,
+            laws_evaluated=enforce_laws,
             embody=embody,
             record_diagnostics=record_diagnostics,
         )

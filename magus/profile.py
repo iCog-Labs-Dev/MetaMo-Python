@@ -161,11 +161,11 @@ class DecisionProfile:
         delta_g: np.ndarray,
     ) -> float:
         """Value expected progress while treating anti-goal growth as harmful."""
-        value = 0.0
-        for idx in range(self.schema.goals.anti_goal_start):
-            value += state.G[idx] * delta_g[idx]
-        for idx in self.anti_goal_indices():
-            value -= state.G[idx] * delta_g[idx]
+        anti_start = self.schema.goals.anti_goal_start
+        value = (
+            np.dot(state.G[:anti_start], delta_g[:anti_start])
+            - np.dot(state.G[anti_start:], delta_g[anti_start:])
+        )
         return float(self.expected_goal_change_weight * value)
 
     def score_breakdown(
