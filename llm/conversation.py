@@ -69,8 +69,7 @@ class MetaMoChatAssistant:
                 response = self.chat.send_message(execution_prompt)
                 return response.text
             except Exception as error:
-                self.client = None
-                self.chat = None
+                # Keep the existing chat so retries continue the same conversation history.
                 if attempt == 2 or not _is_retryable(error):
                     raise
                 time.sleep(1.5 * (attempt + 1))
