@@ -114,6 +114,17 @@ class TransitionContractTests(unittest.TestCase):
         self.assertGreater(diagnostics.law_correction_delta, 0.0)
         self.assertEqual(diagnostics.projection_delta, 0.0)
 
+    def test_step_honors_enforced_law(self):
+        bimonad, _, _ = self.make_bimonad(LawMode.ENFORCE)
+        _, stepped = bimonad.step(
+            make_state(), object(), candidates(), record_diagnostics=False
+        )
+        _, audited, diagnostics = bimonad.step_with_diagnostics(
+            make_state(), object(), candidates(), record_diagnostics=False
+        )
+        self.assertGreater(diagnostics.law_correction_delta, 0.0)
+        self.assertLess(stepped.distance_to(audited), 1e-12)
+
     def test_final_state_is_safe_even_when_source_is_unsafe(self):
         bimonad, _, _ = self.make_bimonad()
 

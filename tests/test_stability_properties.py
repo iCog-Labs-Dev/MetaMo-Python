@@ -4,6 +4,7 @@ import numpy as np
 
 from core.schema import MagusGoalSchema, ModulatorSchema, MotivationSchema
 from core.state import MotivationalState
+from core.config import THETA_SAFE
 from dynamics.stability import is_in_safe_region, project_to_safe_region
 
 
@@ -17,6 +18,15 @@ SCHEMA = MotivationSchema(
 
 
 class StabilityPropertyTests(unittest.TestCase):
+    def test_tolerance_does_not_admit_meaningful_floor_violation(self):
+        state = MotivationalState(
+            G=np.zeros(SCHEMA.num_goals),
+            M=np.full(SCHEMA.num_modulators, 0.5),
+            schema=SCHEMA,
+        )
+        state.G[SCHEMA.goal_index("individuation")] = THETA_SAFE - 1e-9
+        self.assertFalse(is_in_safe_region(state))
+
     def test_projection_is_safe_and_idempotent_for_many_states(self):
         rng = np.random.default_rng(17)
         for _ in range(200):
