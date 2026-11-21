@@ -2,7 +2,7 @@ import numpy as np
 
 from core.config import NUM_GOALS, NUM_MODULATORS
 from core.state import Action, MotivationalState
-from llm import conversation
+from llm import client, conversation
 from llm.conversation import MetaMoChatAssistant
 
 
@@ -22,7 +22,7 @@ class FlakyChat:
 
 
 def test_retryable_error_preserves_chat_history(monkeypatch):
-    monkeypatch.setattr(conversation.time, "sleep", lambda _: None)
+    monkeypatch.setattr(client.time, "sleep", lambda _: None)
     monkeypatch.setattr(
         conversation,
         "_create_client_and_chat",

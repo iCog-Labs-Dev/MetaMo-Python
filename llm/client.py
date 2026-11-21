@@ -1,5 +1,5 @@
 import time
-from typing import Dict
+from typing import Callable, Dict, TypeVar
 
 from dotenv import load_dotenv
 
@@ -7,14 +7,31 @@ from core.state import Stimulus
 from llm.parser import parse_action_risks, parse_stimulus
 from llm.prompts import get_action_risk_prompt, get_appraisal_prompt
 
+GEMINI_MODEL = "gemini-3-flash-preview"
 RETRYABLE_MARKERS = ("503", "UNAVAILABLE", "429", "RESOURCE_EXHAUSTED", "HIGH DEMAND")
+MAX_ATTEMPTS = 3
+RETRY_BACKOFF_SECONDS = 1.5
+
+T = TypeVar("T")
+
 _client = None
 _types = None
 
 
-def _is_retryable(error: Exception) -> bool:
+def is_retryable(error: Exception) -> bool:
     message = str(error).upper()
     return any(marker in message for marker in RETRYABLE_MARKERS)
+
+
+def call_with_retry(operation: Callable[[], T]) -> T:
+    """Run a Gemini call, retrying with linear backoff on transient service failures."""
+    for attempt in range(MAX_ATTEMPTS):
+        try:
+            return operation()
+        except Exception as error:
+            if attempt == MAX_ATTEMPTS - 1 or not is_retryable(error):
+                raise
+            time.sleep(RETRY_BACKOFF_SECONDS * (attempt + 1))
 
 
 def _gemini_client():
@@ -31,26 +48,20 @@ def _gemini_client():
 
 def query_llm_for_json(prompt: str) -> str:
     """Query the LLM and require JSON output, with bounded retry on transient service failures."""
-    last_error = None
-    for attempt in range(3):
-        try:
-            client, types = _gemini_client()
-            response = client.models.generate_content(
-                model="gemini-3-flash-preview",
-                contents=prompt,
-                config=types.GenerateContentConfig(
-                    response_mime_type="application/json",
-                    temperature=0.2,
-                ),
-            )
-            return response.text
-        except Exception as error:
-            last_error = error
-            if attempt == 2 or not _is_retryable(error):
-                raise
-            time.sleep(1.5 * (attempt + 1))
 
-    raise last_error
+    def generate() -> str:
+        client, types = _gemini_client()
+        response = client.models.generate_content(
+            model=GEMINI_MODEL,
+            contents=prompt,
+            config=types.GenerateContentConfig(
+                response_mime_type="application/json",
+                temperature=0.2,
+            ),
+        )
+        return response.text
+
+    return call_with_retry(generate)
 
 
 def get_stimulus_from_text(document_text: str) -> Stimulus:
