@@ -56,14 +56,10 @@ def make_action(action_id, *, task_delta=0.0, risk=0.2, opportunity=0.4):
 
 
 class DecisionContractTests(unittest.TestCase):
-    def test_decision_returns_evidence_and_reuses_computed_delta(self):
+    def test_delta_g_does_not_change_candidate_ranking(self):
         calculator = CountingGoalChangeCalculator()
         decision = MagusDecision(
-            DecisionProfile(
-                name="test",
-                schema=SCHEMA,
-                expected_goal_change_weight=1.0,
-            ),
+            DecisionProfile(name="test", schema=SCHEMA),
             goal_change_calculator=calculator,
         )
         candidates = [
@@ -74,13 +70,28 @@ class DecisionContractTests(unittest.TestCase):
         result = decision.decide(make_state(), candidates)
 
         self.assertIsInstance(result, DecisionResult)
-        self.assertEqual(result.action.id, "positive")
+        self.assertEqual(result.action.id, "negative")
         self.assertEqual(len(result.candidate_scores), 2)
-        self.assertEqual(calculator.calls, 2)
-        self.assertGreater(result.chosen_score.expected_goal_change, 0.0)
+        self.assertEqual(
+            result.candidate_scores[0].total_score,
+            result.candidate_scores[1].total_score,
+        )
+        self.assertEqual(calculator.calls, 1)
         action, delta = result
         self.assertIs(action, result.action)
         np.testing.assert_array_equal(delta, result.proposed_delta_g)
+        np.testing.assert_array_equal(delta, candidates[0].delta_g)
+
+    def test_scoring_does_not_compute_a_goal_update(self):
+        calculator = CountingGoalChangeCalculator()
+        decision = MagusDecision(
+            DecisionProfile(name="test", schema=SCHEMA),
+            goal_change_calculator=calculator,
+        )
+
+        decision.score_candidate(make_state(), make_action("test", task_delta=0.05))
+
+        self.assertEqual(calculator.calls, 0)
 
     def test_overgoal_effects_are_candidate_dependent(self):
         calculator = CountingGoalChangeCalculator()

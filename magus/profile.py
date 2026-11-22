@@ -45,7 +45,6 @@ class DecisionProfile:
     anti_goal_delta_scale: float = 0.03
     delta_scale: float = 0.05
     candidate_delta_weight: float = 0.0
-    expected_goal_change_weight: float = 0.1
     max_goal_delta: float = 0.1
 
     def validate(self, state: MotivationalState, candidate: Action) -> None:
@@ -155,24 +154,10 @@ class DecisionProfile:
         trans_alignment = float(np.clip(candidate.goal_correlations[trans_idx], -1.0, 1.0))
         return (1.0 + trans_alignment) / 2.0
 
-    def expected_goal_change_value(
-        self,
-        state: MotivationalState,
-        delta_g: np.ndarray,
-    ) -> float:
-        """Value expected progress while treating anti-goal growth as harmful."""
-        anti_start = self.schema.goals.anti_goal_start
-        value = (
-            np.dot(state.G[:anti_start], delta_g[:anti_start])
-            - np.dot(state.G[anti_start:], delta_g[anti_start:])
-        )
-        return float(self.expected_goal_change_weight * value)
-
     def score_breakdown(
         self,
         state: MotivationalState,
         candidate: Action,
-        delta_g: np.ndarray,
         lambda_ind: float,
         lambda_trans: float,
     ) -> CandidateScoreBreakdown:
@@ -198,13 +183,11 @@ class DecisionProfile:
         transcendence_adjustment = (
             lambda_trans * g_trans * self.action_opportunity(candidate)
         )
-        expected_change = self.expected_goal_change_value(state, delta_g)
         total = (
             sum(primary.values())
             - sum(anti.values())
             + individuation_adjustment
             + transcendence_adjustment
-            + expected_change
         )
         return CandidateScoreBreakdown(
             action_id=candidate.id,
@@ -212,7 +195,6 @@ class DecisionProfile:
             anti_goal_penalties=anti,
             individuation_adjustment=float(individuation_adjustment),
             transcendence_adjustment=float(transcendence_adjustment),
-            expected_goal_change=float(expected_change),
             total_score=float(total),
         )
 
@@ -224,9 +206,8 @@ class DecisionProfile:
         lambda_trans: float,
     ) -> float:
         """Compatibility helper for scoring without external feedback."""
-        delta = self.delta_g(state, candidate, lambda_ind, lambda_trans)
         return self.score_breakdown(
-            state, candidate, delta, lambda_ind, lambda_trans
+            state, candidate, lambda_ind, lambda_trans
         ).total_score
 
     def goal_update_value(
@@ -269,19 +250,17 @@ class DecisionProfile:
 
     def aggregate(
         self,
-        delta_g: np.ndarray,
         state: MotivationalState,
         candidate: Action,
         lambda_ind: float,
         lambda_trans: float,
     ) -> float:
         """
-        Application aggregation A(Delta G(a), x).
+        Application aggregation of candidate score terms.
         """
         return self.score_breakdown(
             state,
             candidate,
-            delta_g,
             lambda_ind,
             lambda_trans,
         ).total_score
@@ -294,5 +273,4 @@ class DecisionProfile:
         lambda_trans: float,
     ) -> float:
         self.validate(state, candidate)
-        delta = self.delta_g(state, candidate, lambda_ind, lambda_trans)
-        return self.aggregate(delta, state, candidate, lambda_ind, lambda_trans)
+        return self.aggregate(state, candidate, lambda_ind, lambda_trans)

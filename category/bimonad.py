@@ -108,7 +108,6 @@ class MetaMoPseudoBimonad:
                 anti_goal_penalties={},
                 individuation_adjustment=0.0,
                 transcendence_adjustment=0.0,
-                expected_goal_change=0.0,
                 total_score=0.0,
             )
             decision_result = DecisionResult(

@@ -15,7 +15,6 @@ class CandidateScoreBreakdown:
     anti_goal_penalties: Mapping[str, float]
     individuation_adjustment: float
     transcendence_adjustment: float
-    expected_goal_change: float
     total_score: float
 
 

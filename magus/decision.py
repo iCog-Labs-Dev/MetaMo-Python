@@ -45,11 +45,9 @@ class MagusDecision(DecisionMonad):
         """
         Score a single candidate action under the current motivational state.
         """
-        delta = self.propose_delta_g(state, candidate, feedback)
         return self.profile.score_breakdown(
             state,
             candidate,
-            delta,
             LAMBDA_IND,
             LAMBDA_TRANS,
         ).total_score
@@ -61,14 +59,13 @@ class MagusDecision(DecisionMonad):
         feedback: Any = None,
     ) -> tuple[np.ndarray, CandidateScoreBreakdown]:
         """Compute a candidate update and score it once."""
-        delta = self.propose_delta_g(state, candidate, feedback)
         breakdown = self.profile.score_breakdown(
             state,
             candidate,
-            delta,
             LAMBDA_IND,
             LAMBDA_TRANS,
         )
+        delta = self.propose_delta_g(state, candidate, feedback)
         return delta, breakdown
 
     def propose_delta_g(
@@ -95,29 +92,28 @@ class MagusDecision(DecisionMonad):
         feedback: Any = None,
     ) -> DecisionResult:
         """
-        Scores each candidate action and returns the selected action together
-        with its proposed goal update Delta G.
+        Scores each candidate action, then proposes Delta G for the winner.
         """
         if not candidates:
             raise ValueError("Must provide at least one candidate action to the decision monad.")
 
         best_action = None
-        best_delta_g = None
         best_breakdown = None
         candidate_scores = []
 
         for candidate in candidates:
-            delta_g, breakdown = self.evaluate_candidate(
+            breakdown = self.profile.score_breakdown(
                 state,
                 candidate,
-                feedback,
+                LAMBDA_IND,
+                LAMBDA_TRANS,
             )
             candidate_scores.append(breakdown)
             if best_breakdown is None or breakdown.total_score > best_breakdown.total_score:
                 best_action = candidate
-                best_delta_g = delta_g
                 best_breakdown = breakdown
 
+        best_delta_g = self.propose_delta_g(state, best_action, feedback)
         return DecisionResult(
             action=best_action,
             proposed_delta_g=best_delta_g.copy(),
