@@ -1,9 +1,7 @@
-"""Generic deterministic S-expression serializer for Python and MetaMo objects.
+"""Generic, deterministic S-expression serialization for Python objects.
 
-This module intentionally produces generic S-expressions, not Atomese-specific
-executable forms. AtomSpace/Atomese output is available via the dedicated
-`to_atomese*` helpers, which are kept separate from the base serializer to avoid
-conflating syntax with executable constructors.
+The base API emits generic S-expression data, not executable Atomese. Atomese-shaped
+helpers are kept separate below and must be validated against the target AtomSpace API.
 """
 
 from __future__ import annotations
@@ -11,7 +9,7 @@ from __future__ import annotations
 import dataclasses
 import math
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Mapping, TextIO
 
@@ -22,34 +20,30 @@ except ImportError:  # pragma: no cover
 
 
 class SExprSerializationError(TypeError, ValueError):
-    """Raised when a value cannot be serialized safely."""
+    """Raised when a Python value cannot be serialized safely."""
 
 
 class CyclicReferenceError(SExprSerializationError):
-    """Raised when a cyclic reference is encountered."""
+    """Raised when an object graph contains a cycle."""
 
 
 class SExprParseError(ValueError):
-    """Raised when an S-expression is invalid."""
+    """Raised when source text is not valid S-expression syntax."""
 
 
 @dataclass(frozen=True)
 class SAtom:
-    """An explicit unquoted atom."""
-
     value: str
 
     def __post_init__(self) -> None:
         if not isinstance(self.value, str):
             raise TypeError("SAtom.value must be a string")
-        if not self.value or any(c.isspace() or c in '();"\\' for c in self.value):
-            raise ValueError(f"Invalid unquoted atom token: {self.value!r}")
+        if not _SYMBOL_RE.fullmatch(self.value):
+            raise ValueError(f"Invalid unquoted atom: {self.value!r}")
 
 
 @dataclass(frozen=True)
 class SString:
-    """A quoted string."""
-
     value: str
 
     def __post_init__(self) -> None:
@@ -59,8 +53,6 @@ class SString:
 
 @dataclass(frozen=True)
 class SList:
-    """An S-expression list."""
-
     items: tuple[Any, ...]
 
     def __post_init__(self) -> None:
@@ -68,7 +60,7 @@ class SList:
 
 
 SExprNode = SAtom | SString | SList
-_SYMBOL_RE = re.compile(r"^[A-Za-z_+*/<>=!?$%&~^.-][A-Za-z0-9_+*/<>=!?$%&~^.-]*$")
+_SYMBOL_RE = re.compile(r"^(?:[A-Za-z_#+*/<>=!?$%&~^.#][A-Za-z0-9_+*/<>=!?$%&~^.#-]*|-[A-Za-z0-9_+*/<>=!?$%&~^.#-]+|-?[0-9]+(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?)$")
 
 
 def _validate_symbol(value: str) -> None:
@@ -78,13 +70,13 @@ def _validate_symbol(value: str) -> None:
 
 @dataclass
 class SExprConfig:
-    """Configuration for generic deterministic S-expression serialization."""
+    """Controls formatting and supported serialization policies."""
 
     indent: int = 2
     compact: bool = False
     max_inline_items: int = 4
-    nan_policy: str = "error"
-    bool_style: str = "lower"
+    nan_policy: str = "error"  # error, symbol, or string
+    bool_style: str = "lower"  # lower, upper, or scheme
     array_tag: str | None = "Array"
     numpy_metadata: bool = False
     dict_tag: str = "dict"
@@ -92,10 +84,10 @@ class SExprConfig:
     list_tag: str | None = None
     tuple_tag: str | None = None
     nil_symbol: str = "nil"
-    dataclass_style: str = "tagged"
-    dataclass_field_style: str = "tagged"
-    dataclass_style_overrides: dict[str, str] = field(default_factory=dict)
-    include_repr_fields: bool = False
+    dataclass_style: str = "tagged"  # tagged, list, or map
+    dataclass_field_style: str = "tagged"  # tagged or positional
+    dataclass_style_overrides: dict[str, str] | None = None
+    include_repr_fields: bool = True
     float_precision: int | None = None
     ascii_only: bool = False
     sort_dict_keys: bool = True
@@ -121,12 +113,14 @@ class SExprConfig:
         for tag in (self.array_tag, self.list_tag, self.tuple_tag):
             if tag is not None:
                 _validate_symbol(tag)
-        for name in (self.dict_tag, self.dict_entry_tag, self.nil_symbol):
-            _validate_symbol(name)
+        for symbol in (self.dict_tag, self.dict_entry_tag, self.nil_symbol):
+            _validate_symbol(symbol)
+        if self.dataclass_style_overrides is None:
+            self.dataclass_style_overrides = {}
         for class_name, style in self.dataclass_style_overrides.items():
             if not isinstance(class_name, str) or not class_name:
                 raise ValueError("Dataclass override keys must be non-empty strings")
-            if style not in {"tagged", "list", "map"}:
+            if style not in {"tagged", "list", "map", "positional"}:
                 raise ValueError(f"Invalid dataclass style for {class_name!r}")
 
 
@@ -135,7 +129,7 @@ ContextEncoder = Callable[[Any, "Introspector"], Any]
 
 
 class SExprRegistry:
-    """Registry for simple and context-aware generic encoders."""
+    """Registry for custom domain encoders."""
 
     def __init__(self) -> None:
         self._encoders: dict[type, Encoder | ContextEncoder] = {}
@@ -175,18 +169,18 @@ class SExprRegistry:
         for candidate in cls.__mro__:
             if candidate in self._encoders:
                 return self._encoders[candidate], candidate in self._context_types
-        matches = []
+        matches: list[tuple[int, Encoder | ContextEncoder, bool]] = []
         for registered, encoder in self._encoders.items():
             try:
                 if issubclass(cls, registered):
-                    matches.append((len(registered.__mro__), registered, encoder))
+                    matches.append((len(registered.__mro__), encoder, registered in self._context_types))
             except TypeError:
                 continue
         if not matches:
             return None
         matches.sort(key=lambda item: item[0], reverse=True)
-        _, registered, encoder = matches[0]
-        return encoder, registered in self._context_types
+        _, encoder, context = matches[0]
+        return encoder, context
 
     def copy(self) -> "SExprRegistry":
         clone = SExprRegistry()
@@ -196,37 +190,6 @@ class SExprRegistry:
 
 
 DEFAULT_REGISTRY = SExprRegistry()
-
-
-def _float_text(value: float, config: SExprConfig) -> str:
-    if not math.isfinite(value):
-        if config.nan_policy == "error":
-            raise SExprSerializationError("NaN and infinity disabled by nan_policy='error'")
-        if math.isnan(value):
-            return "NaN"
-        return "Infinity" if value > 0 else "-Infinity"
-    if value == 0.0:
-        return "0.0"
-    if config.float_precision is not None:
-        return format(value, f".{config.float_precision}g")
-    return repr(value)
-
-
-def _float_node(value: float, config: SExprConfig) -> SExprNode:
-    if not math.isfinite(value):
-        if config.nan_policy == "error":
-            raise SExprSerializationError("NaN and infinity disabled by nan_policy='error'")
-        token = "NaN" if math.isnan(value) else ("Infinity" if value > 0 else "-Infinity")
-        return SString(token) if config.nan_policy == "string" else SAtom(token)
-    return SAtom(_float_text(value, config))
-
-
-def _bool_atom(value: bool, config: SExprConfig) -> SAtom:
-    if config.bool_style == "upper":
-        return SAtom("TRUE" if value else "FALSE")
-    if config.bool_style == "scheme":
-        return SAtom("#t" if value else "#f")
-    return SAtom("true" if value else "false")
 
 
 def _class_name(value: Any) -> str:
@@ -239,7 +202,6 @@ def _is_namedtuple(value: Any) -> bool:
 
 
 def _stable_key(value: Any) -> tuple[Any, ...]:
-    """Return a deterministic ordering key for supported mapping keys."""
     if value is None:
         return (0,)
     if isinstance(value, bool):
@@ -248,9 +210,8 @@ def _stable_key(value: Any) -> tuple[Any, ...]:
         return (2, value)
     if isinstance(value, float):
         if not math.isfinite(value):
-            raise SExprSerializationError("Non-finite floats cannot be mapping keys in deterministic mode")
-        normalized = 0.0 if value == 0.0 else value
-        return (3, normalized.hex())
+            raise SExprSerializationError("Non-finite floats cannot be deterministic mapping keys")
+        return (3, (0.0 if value == 0.0 else value).hex())
     if isinstance(value, str):
         return (4, value)
     if isinstance(value, bytes):
@@ -259,8 +220,54 @@ def _stable_key(value: Any) -> tuple[Any, ...]:
         return _stable_key(value.item())
     raise SExprSerializationError(
         f"Cannot deterministically sort key type {type(value).__name__}; "
-        "supported keys are None, booleans, numbers, strings, and bytes."
+        "supported keys are None, booleans, numbers, strings, and bytes"
     )
+
+
+def _float_text(value: float, config: SExprConfig) -> str:
+    if not math.isfinite(value):
+        if config.nan_policy == "error":
+            raise SExprSerializationError("NaN and infinity disabled by nan_policy='error'")
+        if math.isnan(value):
+            return "NaN"
+        return "Infinity" if value > 0 else "-Infinity"
+    if value == 0.0:
+        return "0.0"
+    if config.float_precision is not None:
+        return format(value, f".{config.float_precision}f")
+    return repr(value)
+
+
+def _escape_string(value: str, ascii_only: bool = False) -> str:
+    out = ['"']
+    for char in value:
+        codepoint = ord(char)
+        if char == '"':
+            out.append('\\"')
+        elif char == "\\":
+            out.append("\\\\")
+        elif char == "\n":
+            out.append("\\n")
+        elif char == "\r":
+            out.append("\\r")
+        elif char == "\t":
+            out.append("\\t")
+        elif char == "\b":
+            out.append("\\b")
+        elif char == "\f":
+            out.append("\\f")
+        elif codepoint < 0x20 or codepoint == 0x7F or 0xD800 <= codepoint <= 0xDFFF:
+            out.append(f"\\u{codepoint:04x}")
+        elif ascii_only and codepoint > 0x7E:
+            if codepoint <= 0xFFFF:
+                out.append(f"\\u{codepoint:04x}")
+            else:
+                adjusted = codepoint - 0x10000
+                out.append(f"\\u{0xD800 + (adjusted >> 10):04x}\\u{0xDC00 + (adjusted & 0x3FF):04x}")
+        else:
+            out.append(char)
+    out.append('"')
+    return "".join(out)
 
 
 class Introspector:
@@ -277,11 +284,16 @@ class Introspector:
         if value is None:
             return SAtom(self.config.nil_symbol)
         if isinstance(value, bool):
-            return _bool_atom(value, self.config)
+            if self.config.bool_style == "upper":
+                return SAtom("TRUE" if value else "FALSE")
+            if self.config.bool_style == "scheme":
+                return SAtom("#t" if value else "#f")
+            return SAtom("true" if value else "false")
         if isinstance(value, int):
             return SAtom(str(value))
         if isinstance(value, float):
-            return _float_node(value, self.config)
+            text = _float_text(value, self.config)
+            return SString(text) if not math.isfinite(value) and self.config.nan_policy == "string" else SAtom(text)
         if isinstance(value, str):
             return SString(value)
         if isinstance(value, bytes):
@@ -292,10 +304,9 @@ class Introspector:
         custom = self.registry.lookup(type(value))
         if custom is not None:
             encoder, uses_context = custom
-            return self._guarded(
-                value,
-                lambda: self.convert(encoder(value, self) if uses_context else encoder(value)),
-            )
+            return self._guarded(value, lambda: self.convert(
+                encoder(value, self) if uses_context else encoder(value)
+            ))
         if hasattr(value, "__sexpr__"):
             method = getattr(value, "__sexpr__")
             if not callable(method):
@@ -314,7 +325,7 @@ class Introspector:
         if isinstance(value, tuple):
             return self._guarded(value, lambda: self._convert_sequence(value, self.config.tuple_tag))
         if isinstance(value, (set, frozenset)):
-            raise SExprSerializationError("Sets are unsupported because their order is undefined.")
+            raise SExprSerializationError("Sets are unsupported because their order is undefined")
         raise SExprSerializationError(f"Unsupported Python type: {_class_name(value)}")
 
     def _guarded(self, value: Any, callback: Callable[[], SExprNode]) -> SExprNode:
@@ -337,7 +348,7 @@ class Introspector:
             _stable_key(key)
         if self.config.sort_dict_keys:
             items.sort(key=lambda pair: _stable_key(pair[0]))
-        entries = (SList((self.convert(key), self.convert(item))) for key, item in items)
+        entries = tuple(SList((self.convert(key), self.convert(item))) for key, item in items)
         return SList((SAtom(self.config.dict_tag), *entries))
 
     def _convert_dataclass(self, value: Any) -> SExprNode:
@@ -349,20 +360,14 @@ class Introspector:
         )
         fields = list(dataclasses.fields(value))
         if not self.config.include_repr_fields:
-            fields = [f for f in fields if f.repr]
-        pairs = [(f.name, self.convert(getattr(value, f.name))) for f in fields]
+            fields = [field for field in fields if field.repr]
+        pairs = [(field.name, self.convert(getattr(value, field.name))) for field in fields]
 
-        if self.config.dataclass_field_style == "positional" or style == "list":
+        if self.config.dataclass_field_style == "positional" or style in {"list", "positional"}:
             return SList((SAtom(class_name), *(node for _, node in pairs)))
         if style == "map":
-            return SList((
-                SAtom(class_name),
-                *(SList((SAtom("Field"), SString(name), node)) for name, node in pairs),
-            ))
-        return SList((
-            SAtom(class_name),
-            *(SList((SAtom(name), node)) for name, node in pairs),
-        ))
+            return SList((SAtom(class_name), *(SList((SAtom("Field"), SString(name), node)) for name, node in pairs)))
+        return SList((SAtom(class_name), *(SList((SAtom(name), node)) for name, node in pairs)))
 
     def _convert_ndarray(self, value: Any) -> SExprNode:
         assert np is not None
@@ -371,7 +376,7 @@ class Introspector:
             return SList((
                 SAtom("ndarray"),
                 SList((SAtom("dtype"), SString(str(value.dtype)))),
-                SList((SAtom("shape"), SList(tuple(SAtom(str(n)) for n in value.shape)))),
+                SList((SAtom("shape"), SList(tuple(SAtom(str(size)) for size in value.shape)))),
                 SList((SAtom("data"), data)),
             ))
         if self.config.array_tag is None:
@@ -379,41 +384,7 @@ class Introspector:
         return SList((SAtom(self.config.array_tag), data))
 
 
-def _escape_string(value: str, ascii_only: bool = False) -> str:
-    out = ['"']
-    for char in value:
-        cp = ord(char)
-        if char == '"':
-            out.append('\\"')
-        elif char == "\\":
-            out.append("\\\\")
-        elif char == "\n":
-            out.append("\\n")
-        elif char == "\r":
-            out.append("\\r")
-        elif char == "\t":
-            out.append("\\t")
-        elif char == "\b":
-            out.append("\\b")
-        elif char == "\f":
-            out.append("\\f")
-        elif cp < 0x20 or cp == 0x7F or 0xD800 <= cp <= 0xDFFF:
-            out.append(f"\\u{cp:04x}")
-        elif ascii_only and cp > 0x7E:
-            if cp <= 0xFFFF:
-                out.append(f"\\u{cp:04x}")
-            else:
-                adjusted = cp - 0x10000
-                out.append(f"\\u{0xD800 + (adjusted >> 10):04x}\\u{0xDC00 + (adjusted & 0x3FF):04x}")
-        else:
-            out.append(char)
-    out.append('"')
-    return "".join(out)
-
-
 class SExprFormatter:
-    """Formats IR as S-expression text."""
-
     def __init__(self, config: SExprConfig | None = None) -> None:
         self.config = config if config is not None else SExprConfig()
 
@@ -439,16 +410,19 @@ class SExprFormatter:
 
 
 def to_ir(value: Any, *, config: SExprConfig | None = None, registry: SExprRegistry | None = None) -> SExprNode:
+    """Convert a Python value to generic S-expression IR."""
     return Introspector(config=config, registry=registry).convert(value)
 
 
 def to_sexpr(value: Any, *, config: SExprConfig | None = None, registry: SExprRegistry | None = None) -> str:
+    """Serialize a Python value as deterministic generic S-expression text."""
     actual = config if config is not None else SExprConfig()
     return SExprFormatter(actual).format(to_ir(value, config=actual, registry=registry))
 
 
 def write_sexpr(value: Any, destination: str | Path | TextIO, *, config: SExprConfig | None = None,
                 registry: SExprRegistry | None = None, encoding: str = "utf-8") -> None:
+    """Write generic S-expression text to a file or text stream."""
     output = to_sexpr(value, config=config, registry=registry)
     if hasattr(destination, "write"):
         destination.write(output)
@@ -467,16 +441,17 @@ class _Token:
 
 def _combine_surrogates(value: str) -> str:
     result: list[str] = []
-    i = 0
-    while i < len(value):
-        cp = ord(value[i])
-        if 0xD800 <= cp <= 0xDBFF and i + 1 < len(value) and 0xDC00 <= ord(value[i + 1]) <= 0xDFFF:
-            low = ord(value[i + 1])
-            result.append(chr(0x10000 + ((cp - 0xD800) << 10) + low - 0xDC00))
-            i += 2
-        else:
-            result.append(value[i])
-            i += 1
+    index = 0
+    while index < len(value):
+        codepoint = ord(value[index])
+        if 0xD800 <= codepoint <= 0xDBFF and index + 1 < len(value):
+            low = ord(value[index + 1])
+            if 0xDC00 <= low <= 0xDFFF:
+                result.append(chr(0x10000 + ((codepoint - 0xD800) << 10) + low - 0xDC00))
+                index += 2
+                continue
+        result.append(value[index])
+        index += 1
     return "".join(result)
 
 
@@ -484,76 +459,78 @@ def _tokenize(source: str) -> list[_Token]:
     if not isinstance(source, str):
         raise TypeError("source must be a string")
     tokens: list[_Token] = []
-    i = 0
-    while i < len(source):
-        c = source[i]
-        if c.isspace():
-            i += 1
+    index = 0
+    while index < len(source):
+        character = source[index]
+        if character.isspace():
+            index += 1
             continue
-        if c == ";":
-            while i < len(source) and source[i] != "\n":
-                i += 1
+        if character == ";":
+            while index < len(source) and source[index] != "\n":
+                index += 1
             continue
-        if c in "()":
-            tokens.append(_Token("LPAREN" if c == "(" else "RPAREN", c, i))
-            i += 1
+        if character in "()":
+            tokens.append(_Token("LPAREN" if character == "(" else "RPAREN", character, index))
+            index += 1
             continue
-        if c == '"':
-            start = i
-            i += 1
+        if character == '"':
+            start = index
+            index += 1
             decoded: list[str] = []
-            while i < len(source):
-                c = source[i]
-                if c == '"':
-                    i += 1
+            while index < len(source):
+                character = source[index]
+                if character == '"':
+                    index += 1
                     tokens.append(_Token("STRING", _combine_surrogates("".join(decoded)), start))
                     break
-                if c != "\\":
-                    if ord(c) < 0x20:
-                        raise SExprParseError(f"Unescaped control character at position {i}")
-                    decoded.append(c)
-                    i += 1
+                if character != "\\":
+                    if ord(character) < 0x20:
+                        raise SExprParseError(f"Unescaped control character at position {index}")
+                    decoded.append(character)
+                    index += 1
                     continue
-                esc_pos = i
-                i += 1
-                if i >= len(source):
-                    raise SExprParseError(f"Unterminated escape at position {esc_pos}")
-                esc = source[i]
-                i += 1
+                escape_position = index
+                index += 1
+                if index >= len(source):
+                    raise SExprParseError(f"Unterminated escape at position {escape_position}")
+                escape = source[index]
+                index += 1
                 simple = {'"': '"', "\\": "\\", "n": "\n", "r": "\r", "t": "\t", "b": "\b", "f": "\f"}
-                if esc in simple:
-                    decoded.append(simple[esc])
-                elif esc == "u":
-                    digits = source[i:i + 4]
-                    if len(digits) != 4 or any(x not in "0123456789abcdefABCDEF" for x in digits):
-                        raise SExprParseError(f"Invalid Unicode escape at position {esc_pos}")
+                if escape in simple:
+                    decoded.append(simple[escape])
+                elif escape == "u":
+                    digits = source[index:index + 4]
+                    if len(digits) != 4 or any(digit not in "0123456789abcdefABCDEF" for digit in digits):
+                        raise SExprParseError(f"Invalid Unicode escape at position {escape_position}")
                     decoded.append(chr(int(digits, 16)))
-                    i += 4
+                    index += 4
                 else:
-                    raise SExprParseError(f"Unsupported escape '\\{esc}' at position {esc_pos}")
+                    raise SExprParseError(f"Unsupported escape '\\{escape}' at position {escape_position}")
             else:
                 raise SExprParseError(f"Unterminated string at position {start}")
             continue
-        start = i
-        while i < len(source) and not source[i].isspace() and source[i] not in '();"':
-            i += 1
-        if i == start:
-            raise SExprParseError(f"Unexpected character {source[i]!r} at position {i}")
-        tokens.append(_Token("ATOM", source[start:i], start))
+        start = index
+        while index < len(source) and not source[index].isspace() and source[index] not in '();"':
+            index += 1
+        if index == start:
+            raise SExprParseError(f"Unexpected character {source[index]!r} at position {index}")
+        tokens.append(_Token("ATOM", source[start:index], start))
     return tokens
 
 
 def parse_sexpr(source: str) -> SExprNode:
-    """Parse exactly one expression into syntax IR; no Python type inference."""
+    """Parse exactly one generic S-expression into syntax IR; no type inference is performed."""
+    if not isinstance(source, str):
+        raise TypeError("source must be a string")
     tokens = _tokenize(source)
-    i = 0
+    position = 0
 
     def parse_one() -> SExprNode:
-        nonlocal i
-        if i >= len(tokens):
+        nonlocal position
+        if position >= len(tokens):
             raise SExprParseError("Unexpected end of input")
-        token = tokens[i]
-        i += 1
+        token = tokens[position]
+        position += 1
         if token.kind == "STRING":
             return SString(token.value)
         if token.kind == "ATOM":
@@ -563,10 +540,10 @@ def parse_sexpr(source: str) -> SExprNode:
         if token.kind == "LPAREN":
             items: list[SExprNode] = []
             while True:
-                if i >= len(tokens):
+                if position >= len(tokens):
                     raise SExprParseError(f"Unclosed '(' at position {token.position}")
-                if tokens[i].kind == "RPAREN":
-                    i += 1
+                if tokens[position].kind == "RPAREN":
+                    position += 1
                     return SList(tuple(items))
                 items.append(parse_one())
         raise SExprParseError(f"Unexpected token at position {token.position}")
@@ -574,8 +551,8 @@ def parse_sexpr(source: str) -> SExprNode:
     if not tokens:
         raise SExprParseError("Input is empty")
     result = parse_one()
-    if i != len(tokens):
-        raise SExprParseError(f"Unexpected extra expression at position {tokens[i].position}")
+    if position != len(tokens):
+        raise SExprParseError(f"Unexpected extra expression at position {tokens[position].position}")
     return result
 
 
@@ -584,29 +561,25 @@ def _atomese_node(name: str, *children: SExprNode) -> SList:
     return SList((SAtom(name), *children))
 
 
-def to_atomese_ir(value: Any, *, registry: SExprRegistry | None = None, sort_dict_keys: bool = True) -> SExprNode:
-    """Convert common values to a proposed Atomese-shaped IR.
-
-    This is intentionally separate from the generic serializer and should be treated
-    as a compatibility layer, not a claim that all output is valid executable
-    Atomese for a specific OpenCog environment.
-    """
+def to_atomese_ir(value: Any, *, registry: SExprRegistry | None = None,
+                  sort_dict_keys: bool = True) -> SExprNode:
+    """Convert to proposed Atomese-shaped IR; validate constructors for the target environment."""
     actual_registry = registry if registry is not None else DEFAULT_REGISTRY
     active: set[int] = set()
 
-    def guarded(obj: Any, fn: Callable[[], SExprNode]) -> SExprNode:
-        ident = id(obj)
-        if ident in active:
+    def guarded(obj: Any, callback: Callable[[], SExprNode]) -> SExprNode:
+        identity = id(obj)
+        if identity in active:
             raise CyclicReferenceError(f"Cyclic reference detected in {_class_name(obj)}")
-        active.add(ident)
+        active.add(identity)
         try:
-            return fn()
+            return callback()
         finally:
-            active.remove(ident)
+            active.remove(identity)
 
     def convert(obj: Any) -> SExprNode:
         if isinstance(obj, (SAtom, SString, SList)):
-            raise SExprSerializationError("Pass original Python values, not generic IR, to Atomese conversion.")
+            raise SExprSerializationError("Pass Python values, not generic IR, to Atomese conversion")
         if obj is None:
             return _atomese_node("ConceptNode", SString("None"))
         if isinstance(obj, bool):
@@ -627,10 +600,7 @@ def to_atomese_ir(value: Any, *, registry: SExprRegistry | None = None, sort_dic
         if custom is not None:
             encoder, uses_context = custom
             if uses_context:
-                raise SExprSerializationError(
-                    "Context-aware encoders work in generic mode only. Register a simple "
-                    "encoder for Atomese or implement an Atomese-specific context."
-                )
+                raise SExprSerializationError("Context-aware encoders are available only in generic mode")
             return guarded(obj, lambda: convert(encoder(obj)))
         if hasattr(obj, "__sexpr__"):
             method = getattr(obj, "__sexpr__")
@@ -638,18 +608,18 @@ def to_atomese_ir(value: Any, *, registry: SExprRegistry | None = None, sort_dic
                 raise SExprSerializationError("__sexpr__ must be callable")
             return guarded(obj, lambda: convert(method()))
         if np is not None and isinstance(obj, np.ndarray):
-            return guarded(obj, lambda: _atomese_node("ListLink", *(convert(x) for x in obj.tolist())))
+            return guarded(obj, lambda: _atomese_node("ListLink", *(convert(value) for value in obj.tolist())))
         if dataclasses.is_dataclass(obj) and not isinstance(obj, type):
             def dataclass_node() -> SExprNode:
                 fields = [
-                    _atomese_node("ListLink", _atomese_node("ConceptNode", SString(f.name)), convert(getattr(obj, f.name)))
-                    for f in dataclasses.fields(obj) if f.repr
+                    _atomese_node("ListLink", _atomese_node("ConceptNode", SString(field.name)), convert(getattr(obj, field.name)))
+                    for field in dataclasses.fields(obj) if field.repr
                 ]
                 return _atomese_node("ListLink", _atomese_node("ConceptNode", SString(type(obj).__name__)), *fields)
             return guarded(obj, dataclass_node)
         if _is_namedtuple(obj):
             return guarded(obj, lambda: _atomese_node(
-                "ListLink", _atomese_node("ConceptNode", SString(type(obj).__name__)), *(convert(x) for x in obj)
+                "ListLink", _atomese_node("ConceptNode", SString(type(obj).__name__)), *(convert(value) for value in obj)
             ))
         if isinstance(obj, Mapping):
             def mapping_node() -> SExprNode:
@@ -657,11 +627,11 @@ def to_atomese_ir(value: Any, *, registry: SExprRegistry | None = None, sort_dic
                 if sort_dict_keys:
                     items.sort(key=lambda pair: _stable_key(pair[0]))
                 return _atomese_node("ListLink", *(
-                    _atomese_node("ListLink", convert(k), convert(v)) for k, v in items
+                    _atomese_node("ListLink", convert(key), convert(item)) for key, item in items
                 ))
             return guarded(obj, mapping_node)
         if isinstance(obj, (list, tuple)):
-            return guarded(obj, lambda: _atomese_node("ListLink", *(convert(x) for x in obj)))
+            return guarded(obj, lambda: _atomese_node("ListLink", *(convert(value) for value in obj)))
         if isinstance(obj, (set, frozenset)):
             raise SExprSerializationError("Sets are unsupported in deterministic Atomese conversion")
         raise SExprSerializationError(f"Unsupported Atomese value type: {_class_name(obj)}")
@@ -687,13 +657,22 @@ def write_atomese(value: Any, destination: str | Path | TextIO, *, registry: SEx
     path.write_text(output, encoding=encoding)
 
 
+__all__ = [
+    "SAtom", "SString", "SList", "SExprNode", "SExprConfig", "SExprRegistry",
+    "DEFAULT_REGISTRY", "SExprSerializationError", "CyclicReferenceError",
+    "SExprParseError", "Introspector", "SExprFormatter", "to_ir", "to_sexpr",
+    "write_sexpr", "parse_sexpr", "to_atomese_ir", "to_atomese", "write_atomese",
+    "HyperonAtomSpaceWriter",
+]
+
+
 class HyperonAtomSpaceWriter:
-    """Optional Hyperon adapter; verify API compatibility with installed version."""
+    """Optional Hyperon adapter; validate API compatibility with the installed version."""
 
     def __init__(self, metta: Any | None = None) -> None:
         try:
-            from hyperon import MeTTa
-            from hyperon.atoms import E, S, ValueAtom
+            from hyperon import MeTTa  # type: ignore[import-not-found]
+            from hyperon.atoms import E, S, ValueAtom  # type: ignore[import-not-found]
         except ImportError as exc:
             raise ImportError("Hyperon is required for HyperonAtomSpaceWriter") from exc
         self._E, self._S, self._ValueAtom = E, S, ValueAtom
@@ -705,7 +684,7 @@ class HyperonAtomSpaceWriter:
         if isinstance(node, SAtom):
             return self._S(node.value)
         if isinstance(node, SList):
-            return self._E(*(self.ir_to_hyperon_atom(x) for x in node.items))
+            return self._E(*(self.ir_to_hyperon_atom(item) for item in node.items))
         raise SExprSerializationError(f"Unsupported IR node: {type(node).__name__}")
 
     def add_ir(self, node: SExprNode) -> Any:
@@ -719,12 +698,3 @@ class HyperonAtomSpaceWriter:
     def add_python_value(self, value: Any, *, config: SExprConfig | None = None,
                          registry: SExprRegistry | None = None) -> Any:
         return self.add_ir(to_ir(value, config=config, registry=registry))
-
-
-__all__ = [
-    "SAtom", "SString", "SList", "SExprNode", "SExprConfig", "SExprRegistry",
-    "DEFAULT_REGISTRY", "SExprSerializationError", "CyclicReferenceError",
-    "SExprParseError", "Introspector", "SExprFormatter", "to_ir", "to_sexpr",
-    "write_sexpr", "parse_sexpr", "to_atomese_ir", "to_atomese", "write_atomese",
-    "HyperonAtomSpaceWriter",
-]
