@@ -17,6 +17,7 @@ from core.serializer import (
     to_sexpr,
     write_sexpr,
 )
+from s_expression.serializer import HyperonAtomSpaceWriter, SAtom, SList, to_atomese
 
 
 @pytest.mark.parametrize(
@@ -295,3 +296,99 @@ def test_to_ir_returns_a_node():
     result = to_ir([1, 2])
 
     assert isinstance(result, SList)
+
+
+def test_float_precision_configuration():
+    config = SExprConfig(float_precision=3)
+
+    assert "1.235" in to_sexpr(1.23456, config=config)
+
+
+def test_dataclass_map_style():
+    config = SExprConfig(dataclass_style="map")
+
+    output = to_sexpr(Inner("example", 3), config=config)
+
+    assert "(Field " in output
+    assert '(Inner (Field "name" "example")' in output
+
+
+def test_dataclass_style_override():
+    config = SExprConfig(dataclass_style_overrides={"Inner": "positional", "positional": "tagged"})
+
+    assert to_sexpr(Inner("example", 3), config=config) == '(Inner "example" 3)'
+
+
+def test_registered_encoder():
+    class Domain:
+        def __init__(self, identifier):
+            self.identifier = identifier
+
+    from s_expression.serializer import SExprRegistry
+
+    registry = SExprRegistry()
+
+    @registry.register(Domain)
+    def encode_domain(value):
+        return {"id": value.identifier}
+
+    assert to_sexpr(Domain(7), registry=registry) == '(dict ("id" 7))'
+
+
+def test_duck_typed_sexpr_encoder():
+    class Encodable:
+        def __sexpr__(self):
+            return ["encoded", 42]
+
+    assert to_sexpr(Encodable()) == '("encoded" 42)'
+
+
+def test_namedtuple_support():
+    from collections import namedtuple
+
+    Point = namedtuple("Point", ["x", "y"])
+
+    assert to_sexpr(Point(1, 2)) == "(Point 1 2)"
+
+
+def test_set_rejected():
+    with pytest.raises(SExprSerializationError, match="Sets are unsupported"):
+        to_sexpr({1, 2, 3})
+
+
+def test_mixed_scalar_mapping_keys_are_deterministic():
+    value = {"b": 2, 1: "one", True: "bool"}
+
+    assert to_sexpr(value) == to_sexpr(dict(reversed(list(value.items()))))
+
+
+@pytest.mark.parametrize("source", ["", "(", ")", '("unterminated)', '(1 "bad\\q")'])
+def test_malformed_sexpr_rejected(source):
+    with pytest.raises(ValueError):
+        parse_sexpr(source)
+
+
+def test_scheme_boolean_style():
+    config = SExprConfig(bool_style="scheme")
+
+    assert to_sexpr(True, config=config) == "#t"
+    assert to_sexpr(False, config=config) == "#f"
+
+
+def test_hyperon_runtime_atomese_integration():
+    pytest.importorskip("hyperon")
+    from hyperon import MeTTa
+
+    value = {"b": 2, "a": 1}
+    atomese_text = to_atomese(value)
+
+    metta = MeTTa()
+    parsed = metta.parse_all(atomese_text)
+    assert parsed
+
+    writer = HyperonAtomSpaceWriter(metta)
+    atom = writer.add_python_value(value)
+    assert atom is not None
+    assert metta.space().atom_count() >= 1
+
+    assert writer.ir_to_hyperon_atom(SList((SAtom("Link"), SString("name")))) is not None
