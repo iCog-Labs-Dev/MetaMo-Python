@@ -1,15 +1,7 @@
-import time
-
 from core.state import Action, MotivationalState
 from core.actions import execution_instruction, normalize_action_id
 from dotenv import load_dotenv
-
-RETRYABLE_MARKERS = ("503", "UNAVAILABLE", "429", "RESOURCE_EXHAUSTED", "HIGH DEMAND")
-
-
-def _is_retryable(error: Exception) -> bool:
-    message = str(error).upper()
-    return any(marker in message for marker in RETRYABLE_MARKERS)
+from llm.client import GEMINI_MODEL, call_with_retry
 
 
 def _create_client_and_chat():
@@ -19,7 +11,7 @@ def _create_client_and_chat():
 
     client = genai.Client()
     chat = client.chats.create(
-        model="gemini-3-flash-preview",
+        model=GEMINI_MODEL,
         config=types.GenerateContentConfig(
             temperature=0.7,
             system_instruction=(
@@ -62,14 +54,10 @@ class MetaMoChatAssistant:
         Respond naturally to the USER MESSAGE, but follow the ACTION INSTRUCTION exactly.
         """
 
-        for attempt in range(3):
-            try:
-                if self.chat is None:
-                    self.client, self.chat = _create_client_and_chat()
-                response = self.chat.send_message(execution_prompt)
-                return response.text
-            except Exception as error:
-                # Keep the existing chat so retries continue the same conversation history.
-                if attempt == 2 or not _is_retryable(error):
-                    raise
-                time.sleep(1.5 * (attempt + 1))
+        def send() -> str:
+            # Reuse the existing chat so retries continue the same conversation history.
+            if self.chat is None:
+                self.client, self.chat = _create_client_and_chat()
+            return self.chat.send_message(execution_prompt).text
+
+        return call_with_retry(send)
