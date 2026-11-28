@@ -1,6 +1,6 @@
 import json
 
-from core.actions import normalize_action_id
+from core.actions import resolve_action_id
 from core.state import Stimulus
 
 
@@ -24,10 +24,16 @@ def parse_stimulus(llm_json_response: str) -> Stimulus:
 
 
 def parse_action_risks(llm_json_response: str) -> dict[str, float]:
-    """Parse LLM JSON into contextual risk estimates keyed by action id."""
+    """Parse LLM JSON into risk estimates per action, skipping unknown ids and invalid risks."""
     data = json.loads(llm_json_response)
     risk_overrides = {}
     for item in data.get("candidates", []):
-        action_id = normalize_action_id(item["id"])
-        risk_overrides[action_id] = _bounded_float(item["risk_estimate"], "risk_estimate")
+        raw_id = item.get("id")
+        action_id = resolve_action_id(raw_id) if isinstance(raw_id, str) else None
+        if action_id is None:
+            continue
+        try:
+            risk_overrides[action_id] = _bounded_float(item.get("risk_estimate"), "risk_estimate")
+        except ValueError:
+            continue
     return risk_overrides
