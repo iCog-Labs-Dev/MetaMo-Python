@@ -116,11 +116,16 @@ MODE_PROFILES: Final[dict[str, ModeProfile]] = {
 }
 
 
-def normalize_action_id(action_id: str) -> str:
+def resolve_action_id(action_id: str) -> str | None:
+    """Map an id or alias to its catalog action id, or None if it is not in the catalog."""
     normalized = action_id.strip().lower().replace("-", "_").replace(" ", "_")
     if normalized in ACTION_SPECS:
         return normalized
-    return ACTION_ID_ALIASES.get(normalized, DEFAULT_ACTION_ID)
+    return ACTION_ID_ALIASES.get(normalized)
+
+
+def normalize_action_id(action_id: str) -> str:
+    return resolve_action_id(action_id) or DEFAULT_ACTION_ID
 
 
 def _goal_alignment(spec: ActionSpec) -> tuple[float, ...]:
